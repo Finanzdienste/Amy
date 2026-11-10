@@ -1,0 +1,14 @@
+{
+  "name": "frag-mal",
+  "private": true,
+  "type": "module",
+  "description": "Nur für die Tests. Die App selbst hat keine Abhängigkeiten und keinen Bauschritt.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "serve": "node tests/statisch.mjs 8299"
+  },
+  "devDependencies": {
+    "deno": "2.9.6",
+    "playwright": "1.63.0"
+  }
+}

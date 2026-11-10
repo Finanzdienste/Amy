@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f7f4ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1917" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Eine kleine private Chat-App mit Claude.">
+<meta name="robots" content="noindex">
+<title>Frag mal</title>
+<!-- Ohne diese Angaben behandelt iOS die Seite auf dem Home-Bildschirm wie ein
+     Lesezeichen, mit Adressleiste. Safari liest das Manifest dafür nicht. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Frag mal">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <!-- Erscheint erst nach ein paar Sekunden (siehe css/app.css), falls das
+       Skript nicht startet. Auf dem Home-Bildschirm gibt es sonst keinen Weg
+       zum Neuladen. -->
+  <p class="notausgang">Lädt nicht? <a href="">Neu laden</a></p>
+  <noscript><p>Diese App braucht JavaScript.</p></noscript>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

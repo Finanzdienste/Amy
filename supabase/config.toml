@@ -1,0 +1,9 @@
+# Nur die Einstellung für die Funktion amy-chat.
+#
+# verify_jwt = false: Die Funktion prüft die Anmeldung selbst, bei Supabase
+# Auth und gegen ERLAUBTE_NUTZER. Die Prüfung durch die Plattform brächte
+# nichts dazu: Sie lässt jede gültige Anmeldung durch, nicht nur die
+# freigeschalteten.
+
+[functions.amy-chat]
+verify_jwt = false
