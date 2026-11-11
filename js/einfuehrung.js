@@ -133,6 +133,8 @@ export function seitenNachAnmeldung(ueberMich = '') {
           <li><strong>Deine Gespräche</strong> liegen nur auf diesem Gerät. Für jede Antwort geht
             das Gespräch an Anthropic, die Firma hinter Claude; die App selbst speichert es
             nirgends sonst. Auf einem anderen Handy oder Computer siehst du es nicht.</li>
+          <li><strong>Modell und Aufwand</strong> kannst du unter „Über mich &amp; Einstellungen“
+            selbst wählen. Am Anfang passt die Vorgabe.</li>
         </ul>`,
     },
     {

@@ -85,23 +85,30 @@ export type Kontext = {
 };
 
 /*
- * Was in der App wählbar ist. Alles andere fällt auf die Vorgabe zurück.
+ * Was in der App wählbar ist (Schlüssel = kontext.modell). Alles andere fällt
+ * auf die Vorgabe zurück. Alle Paare sind gegen die echte API geprüft.
  *
- *   Opus 5.5 mit Berater   Opus schreibt, fragt bei Schwierigem Fable 5.2.
- *   Fable 5.2              Fable schreibt selbst. Doppelt so teuer, und auf
- *                          hohem Aufwand oft minutenlang; ein Berater ist hier
- *                          sinnlos (Fable nimmt nur sich selbst als Berater).
+ *   Opus 5.5 mit Berater    Opus schreibt, fragt bei Schwierigem Fable 5.2.
+ *   Opus 5.5 allein         ohne Berater.
+ *   Sonnet 5.5 mit Berater  halb so teuer wie Opus, fragt Fable 5.2.
+ *   Haiku 5.5               sehr schnell und fast umsonst, ohne Berater.
+ *   Fable 5.2               Fable schreibt selbst. Doppelt so teuer, und auf
+ *                           hohem Aufwand oft minutenlang; ein Berater ist
+ *                           hier sinnlos (Fable nimmt nur sich selbst).
  */
-export const MODELLE: Record<string, { berater: boolean }> = {
-  [MODELL]: { berater: true },
-  [BERATER]: { berater: false },
+export const MODELLE: Record<string, { modell: string; berater: boolean }> = {
+  [MODELL]: { modell: MODELL, berater: true },
+  "claude-opus-5-5-allein": { modell: MODELL, berater: false },
+  "claude-sonnet-5-5": { modell: "claude-sonnet-5-5", berater: true },
+  "claude-haiku-5-5": { modell: "claude-haiku-5-5", berater: false },
+  [BERATER]: { modell: BERATER, berater: false },
 };
 export const AUFWAENDE = ["low", "medium", "high", "xhigh", "max"];
 
 export function einstellungenAus(kontext: Kontext) {
-  const modell = MODELLE[kontext.modell ?? ""] ? kontext.modell! : MODELL;
+  const wahl = MODELLE[kontext.modell ?? ""] ?? MODELLE[MODELL];
   const aufwand = AUFWAENDE.includes(kontext.aufwand ?? "") ? kontext.aufwand! : "medium";
-  return { modell, aufwand, berater: MODELLE[modell].berater };
+  return { modell: wahl.modell, aufwand, berater: wahl.berater };
 }
 
 /*
