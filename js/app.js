@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '3';
+export const FASSUNG = '4';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -328,8 +328,14 @@ function laufendHtml(l) {
   return `<div class="nachricht von-claude laufend" id="laufend"><div class="md">${markdownZuHtml(l.text)}</div>${l.berater ? status : ''}</div>`;
 }
 
-function hinweisHtml() {
-  const h = zustand.hinweis;
+/* Steht als Letztes eine Frage ohne Antwort da und läuft nichts mehr, etwa
+ * weil das Handy die Verbindung gekappt und die App neu geladen hat, sagt
+ * die App das, statt still zu bleiben. */
+function ohneAntwort(g) {
+  return g?.nachrichten.at(-1)?.role === 'user' && !zustand.laeufe.has(g.id);
+}
+
+function hinweisHtml(h = zustand.hinweis) {
   return `<div class="hinweis${h.nochmal ? ' fehler' : ''}" role="alert">
     <p>${maskiere(h.text)}</p>
     ${h.nochmal ? '<button type="button" class="knopf-klein" data-act="nochmal">Nochmal versuchen</button>' : ''}
@@ -358,6 +364,7 @@ function zeichneGespraech({ ansEnde = false } = {}) {
   let html = g.nachrichten.map(nachrichtHtml).join('');
   if (zustand.laeufe.has(g.id)) html += laufendHtml(zustand.laeufe.get(g.id));
   if (zustand.hinweis?.id === g.id) html += hinweisHtml();
+  else if (ohneAntwort(g)) html += hinweisHtml({ text: 'Darauf ist keine Antwort angekommen.', nochmal: true });
   verlauf.innerHTML = `<div class="verlauf-in">${html}</div>`;
   zeichneSendeknopf();
   if (bleibUnten) verlauf.scrollTop = verlauf.scrollHeight;
@@ -434,7 +441,7 @@ function gibtEs(g) {
 }
 
 async function antwortHolen(g) {
-  const lauf = { ctrl: new AbortController(), text: '', denkt: false };
+  const lauf = { ctrl: new AbortController(), text: '', denkt: false, versteckt: document.hidden };
   zustand.laeufe.set(g.id, lauf);
   zeichneGespraech({ ansEnde: true });
 
@@ -485,7 +492,14 @@ async function antwortHolen(g) {
         await abgemeldet('Die Anmeldung ist abgelaufen. Bitte neu anmelden.');
         return;
       }
-      if (!(fehler instanceof Abbruch)) {
+      if (!(fehler instanceof Abbruch) && lauf.versteckt && !teil) {
+        // Das Handy hat die Verbindung gekappt, während die App im Hintergrund
+        // war: noch einmal fragen, sobald sie wieder offen ist (siehe unten).
+        zustand.hinweis = {
+          id: g.id, nochmal: true, automatisch: true,
+          text: 'Die App war im Hintergrund, dabei ist die Verbindung abgerissen. Ich frage gleich noch einmal.',
+        };
+      } else if (!(fehler instanceof Abbruch)) {
         zustand.hinweis = { id: g.id, text: fehler.message, nochmal: !teil };
       }
     }
@@ -495,7 +509,26 @@ async function antwortHolen(g) {
   if (!gibtEs(g)) return;
   await merke(g);
   if (zustand.aktuell?.id === g.id) zeichneGespraech();
+  if (!document.hidden) nachholen();
 }
+
+/* Eine im Hintergrund abgerissene Antwort noch einmal holen – einmal, und
+ * erst, wenn die App wieder sichtbar ist. */
+function nachholen() {
+  const h = zustand.hinweis;
+  if (!h?.automatisch || document.hidden) return;
+  const g = zustand.gespraeche.find((x) => x.id === h.id);
+  zustand.hinweis = null;
+  if (g && ohneAntwort(g)) antwortHolen(g);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    for (const lauf of zustand.laeufe.values()) lauf.versteckt = true;
+  } else {
+    nachholen();
+  }
+});
 
 /* ---------- Einstellungen ---------- */
 

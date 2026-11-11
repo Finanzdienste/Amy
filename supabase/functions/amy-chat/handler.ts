@@ -59,6 +59,9 @@ export const WERKZEUGE = [{
 /* Wie oft eine pausierte Antwort (pause_turn) höchstens fortgesetzt wird. */
 const MAX_FORTSETZUNGEN = 5;
 
+/* Abstand des Herzschlags im Antwortstrom (Tests setzen ihn kürzer). */
+export const HERZSCHLAG_MS = Number(globalThis.Deno?.env.get("HERZSCHLAG_MS")) || 10_000;
+
 /* Obergrenze für eine Anfrage. Ein langes Gespräch mit viel Text liegt weit
  * darunter; das hier fängt nur Unsinn ab. */
 const MAX_BYTES = 12 * 1024 * 1024;
@@ -271,6 +274,17 @@ export function erstelleHandler(env: Umgebung) {
             kodierer.encode(`data: ${JSON.stringify(ereignis)}\n\n`),
           );
         };
+        // Herzschlag: Während Claude lange nachdenkt oder den Berater fragt,
+        // kommt oft lange nichts. Ein Kommentar alle paar Sekunden hält die
+        // Verbindung offen, damit sie unterwegs niemand als tot abbaut.
+        const herz = setInterval(() => {
+          if (abgebrochen) return;
+          try {
+            controller.enqueue(kodierer.encode(": ping\n\n"));
+          } catch {
+            // Strom schon zu
+          }
+        }, HERZSCHLAG_MS);
         try {
           // Mit Werkzeugen auf dem Server kann eine Antwort pausieren
           // (pause_turn). Dann geht das bisher Geschriebene als Antwort mit,
@@ -318,6 +332,7 @@ export function erstelleHandler(env: Umgebung) {
           if (!abgebrochen) console.error(fehler);
           sende({ t: "fehler", text: fehlerText(fehler) });
         } finally {
+          clearInterval(herz);
           if (!abgebrochen) controller.close();
         }
       },

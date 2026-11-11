@@ -392,6 +392,48 @@ test('Berater: der verschlüsselte Rat geht in der nächsten Frage unverändert 
   await kontext.close();
 });
 
+test('Frage ohne Antwort: Hinweis nach dem Neuladen, und nach dem Hintergrund wird nachgefragt', async () => {
+  const { seite, kontext, fehler } = await neueSeite();
+  await melde(seite, 'amy@test.de', 'geheim-amy');
+
+  // Die App wird mitten in der Antwort neu geladen (so wie ein iPhone eine App im Hintergrund beendet)
+  await frage(seite, 'Bitte langsam, dann neu laden');
+  await seite.waitForSelector('#laufend .md:has-text("Wort3")');
+  await seite.reload();
+  await seite.click('.eintrag-knopf:has-text("Bitte langsam, dann neu laden")');
+  await seite.waitForSelector('.hinweis.fehler:has-text("Darauf ist keine Antwort angekommen.")');
+  gezaehlt = attrappe.anfragen.length;
+  await seite.click('.hinweis button:has-text("Nochmal versuchen")');
+  await warteAufAntwort(seite);
+  assert.equal(await seite.locator('.von-claude').count(), 1);
+  assert.equal(await seite.locator('.hinweis').count(), 0);
+
+  // Die App geht in den Hintergrund, die Verbindung reißt ab – beim Zurückkommen fragt sie selbst nochmal
+  const sichtbar = (versteckt) => seite.evaluate((v) => {
+    Object.defineProperty(document, 'hidden', { value: v, configurable: true });
+    Object.defineProperty(document, 'visibilityState', { value: v ? 'hidden' : 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, versteckt);
+  await seite.click('.leiste .knopf-neu');
+  await sichtbar(true);
+  const vorher = attrappe.anfragen.length;
+  // Das Handy kappt die Verbindung der App (nicht die des Servers): die erste Anfrage geht ins Leere
+  await seite.route(konfig.funktionUrl, (r) => r.abort('connectionreset'), { times: 1 });
+  await seite.fill('#frage', 'Bitte abreißen');
+  await seite.press('#frage', 'Enter');
+  await seite.waitForSelector('.hinweis:has-text("Die App war im Hintergrund")');
+  assert.equal(attrappe.anfragen.length, vorher);
+  gezaehlt = attrappe.anfragen.length;
+  await sichtbar(false);
+  await warteAufAntwort(seite);
+  assert.equal(attrappe.anfragen.length, vorher + 1);
+  assert.match(await seite.locator('.von-claude .md').last().innerText(), /Du hast gefragt: Bitte abreißen/);
+  assert.equal(await seite.locator('.hinweis').count(), 0);
+
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
 test('Einführung am Rechner: ohne Home-Bildschirm-Seite', async () => {
   const { seite, kontext, fehler } = await neueSeite({ begruessen: true });
   await seite.waitForSelector('.einf');
