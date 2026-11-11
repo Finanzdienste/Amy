@@ -13,8 +13,22 @@ import { Abbruch, frage, textAus } from './api.js';
 import { markdownZuHtml, maskiere } from './markdown.js';
 import { alsDollar, kostenUSD } from './kosten.js';
 import * as speicher from './store.js';
+import {
+  istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
+} from './einfuehrung.js';
 
-export const FASSUNG = '1';
+export const FASSUNG = '2';
+
+/* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
+ * erst, wenn man selbst auf ↑ tippt. */
+const BEISPIELE = [
+  ['🍝', 'Was kann ich heute mit Nudeln, Spinat und Feta kochen?'],
+  ['✉️', 'Hilf mir, eine freundliche Absage für eine Einladung zu schreiben.'],
+  ['🔍', 'Erklär mir einfach, wie eine Wärmepumpe funktioniert.'],
+  ['🗺️', 'Plane mit mir ein entspanntes Wochenende am Meer.'],
+];
+
+const BEGRUESST = 'fragmal.begruesst';
 
 const app = document.getElementById('app');
 const grob = matchMedia('(pointer: coarse)').matches;
@@ -59,6 +73,29 @@ function neueId() {
 }
 
 /* ---------- Anmeldung ---------- */
+
+function schonBegruesst() {
+  try {
+    return localStorage.getItem(BEGRUESST) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/* Beim allerersten Öffnen auf diesem Gerät: erst die Begrüßung, dann die
+ * Anmeldung. */
+async function zeigeStart() {
+  if (!schonBegruesst()) {
+    app.innerHTML = '';
+    await zeigeEinfuehrung(app, seitenVorAnmeldung());
+    try {
+      localStorage.setItem(BEGRUESST, '1');
+    } catch {
+      // Ohne Speicher kommt die Begrüßung eben beim nächsten Mal wieder.
+    }
+  }
+  zeigeAnmeldung();
+}
 
 function zeigeAnmeldung(meldung = '') {
   document.title = 'Frag mal';
@@ -155,9 +192,10 @@ async function zeigeApp() {
     <dialog id="einstellungen" class="dialog"></dialog>`;
 
   const id = nutzerId();
-  const [gespraeche, ueberMich] = await Promise.all([
+  const [gespraeche, ueberMich, eingefuehrt] = await Promise.all([
     speicher.gespraecheVon(id),
     speicher.holeEinstellung(id, 'ueberMich'),
+    speicher.holeEinstellung(id, 'eingefuehrt'),
   ]);
   zustand.gespraeche = gespraeche;
   zustand.ueberMich = ueberMich || '';
@@ -188,7 +226,27 @@ async function zeigeApp() {
 
   zeichneListe();
   zeichneGespraech({ ansEnde: true });
-  if (!grob) feld.focus();
+  if (eingefuehrt) {
+    if (!grob) feld.focus();
+  } else {
+    fuehreEin();
+  }
+}
+
+/* Die Einführung nach der Anmeldung, einmal je Konto und Gerät, und auf
+ * Wunsch aus den Einstellungen noch einmal. */
+async function fuehreEin() {
+  const id = nutzerId();
+  const ergebnis = await zeigeEinfuehrung(app, seitenNachAnmeldung(zustand.ueberMich));
+  if (nutzerId() !== id) return;
+  await speicher.setzeEinstellung(id, 'eingefuehrt', true);
+  const neu = (ergebnis.ueberMich ?? '').trim();
+  if (!ergebnis.uebersprungen && neu !== zustand.ueberMich) {
+    zustand.ueberMich = neu;
+    await speicher.setzeEinstellung(id, 'ueberMich', neu);
+  }
+  if (!zustand.aktuell?.nachrichten.length) zeichneGespraech();
+  if (!grob) $('#frage')?.focus();
 }
 
 function passeHoeheAn(feld) {
@@ -219,15 +277,6 @@ function zeichneListe() {
 
 /* ---------- Gespräch ---------- */
 
-function istIOS() {
-  return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
-
-function istInstalliert() {
-  return navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-}
-
 function leererZustand() {
   const tipp = istIOS() && !istInstalliert()
     ? `<p class="tipp">Tipp: Über <strong>Teilen → Zum Home-Bildschirm</strong> wird daraus eine App.
@@ -237,10 +286,14 @@ function leererZustand() {
     ? ''
     : `<p class="tipp">Unter <button type="button" class="link" data-act="einstellungen">Über mich</button>
        kannst du Claude ein paar Dinge über dich mitgeben, die es in jedem neuen Gespräch weiß.</p>`;
+  const beispiele = BEISPIELE.map(([bild, text]) =>
+    `<button type="button" class="beispiel" data-act="beispiel" data-text="${maskiere(text)}">
+      <span aria-hidden="true">${bild}</span> ${maskiere(text)}</button>`).join('');
   return `
     <div class="leer">
       <h2>Worüber möchtest du reden?</h2>
       <p>Frag, was du wissen willst, lass dir etwas erklären, schreiben oder durchdenken.</p>
+      <div class="beispiele">${beispiele}</div>
       ${ueber}${tipp}
     </div>`;
 }
@@ -294,13 +347,16 @@ function zeichneGespraech({ ansEnde = false } = {}) {
   document.title = g?.titel ? `${g.titel} · Frag mal` : 'Frag mal';
 
   if (!g || !g.nachrichten.length) {
+    // Ein leeres Gespräch beginnt oben, mit der Überschrift
     verlauf.innerHTML = leererZustand();
-  } else {
-    let html = g.nachrichten.map(nachrichtHtml).join('');
-    if (zustand.laeufe.has(g.id)) html += laufendHtml(zustand.laeufe.get(g.id));
-    if (zustand.hinweis?.id === g.id) html += hinweisHtml();
-    verlauf.innerHTML = `<div class="verlauf-in">${html}</div>`;
+    verlauf.scrollTop = 0;
+    zeichneSendeknopf();
+    return;
   }
+  let html = g.nachrichten.map(nachrichtHtml).join('');
+  if (zustand.laeufe.has(g.id)) html += laufendHtml(zustand.laeufe.get(g.id));
+  if (zustand.hinweis?.id === g.id) html += hinweisHtml();
+  verlauf.innerHTML = `<div class="verlauf-in">${html}</div>`;
   zeichneSendeknopf();
   if (bleibUnten) verlauf.scrollTop = verlauf.scrollHeight;
 }
@@ -474,7 +530,10 @@ function oeffneEinstellungen() {
 
       <h3>Konto</h3>
       <p>Angemeldet als ${maskiere(s?.nutzer?.email || '')}</p>
-      <button type="button" class="knopf-leise" data-act="abmelden">Abmelden</button>
+      <div class="reihe">
+        <button type="button" class="knopf-leise" data-act="einfuehrung">Einführung ansehen</button>
+        <button type="button" class="knopf-leise" data-act="abmelden">Abmelden</button>
+      </div>
 
       <p class="klein fuss">Die Gespräche liegen nur auf diesem Gerät. Für jede Antwort geht das
         Gespräch über den Server der App an Anthropic; der Server selbst speichert nichts.
@@ -561,6 +620,19 @@ app.addEventListener('click', async (e) => {
 
   if (akt === 'ueber-mich-speichern') await speichereUeberMich();
 
+  if (akt === 'einfuehrung') {
+    $('#einstellungen')?.close();
+    await fuehreEin();
+  }
+
+  if (akt === 'beispiel') {
+    const feld = $('#frage');
+    feld.value = ziel.dataset.text;
+    passeHoeheAn(feld);
+    feld.focus();
+    feld.setSelectionRange(feld.value.length, feld.value.length);
+  }
+
   if (akt === 'abmelden') {
     $('#einstellungen')?.close();
     await abgemeldet('');
@@ -585,5 +657,5 @@ if (sitzung()) {
       <p><a href="">Neu laden</a></p></div></main>`;
   });
 } else {
-  zeigeAnmeldung();
+  zeigeStart();
 }

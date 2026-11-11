@@ -9,7 +9,7 @@
 
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import { NUTZER, starteAttrappe } from './attrappe.mjs';
 import { starteFunktion } from './umgebung.mjs';
 import { starteStatisch } from './statisch.mjs';
@@ -43,8 +43,13 @@ after(async () => {
   await attrappe?.schliessen();
 });
 
-async function neueSeite(optionen = {}) {
+/* Ohne begruessen: true gilt das Gerät als schon begrüßt, damit die meisten
+ * Tests gleich bei der Anmeldung anfangen. */
+async function neueSeite({ begruessen = false, ...optionen } = {}) {
   const kontext = await browser.newContext({ viewport: { width: 1200, height: 820 }, ...optionen });
+  if (!begruessen) {
+    await kontext.addInitScript(() => localStorage.setItem('fragmal.begruesst', '1'));
+  }
   const seite = await kontext.newPage();
   const fehler = [];
   seite.on('pageerror', (e) => fehler.push(String(e)));
@@ -56,10 +61,19 @@ async function neueSeite(optionen = {}) {
   return { seite, kontext, fehler };
 }
 
-async function melde(seite, email, passwort) {
+/* Meldet an und überspringt die Einführung, falls sie kommt. Mit
+ * einfuehrung: true bleibt sie stehen. */
+async function melde(seite, email, passwort, { einfuehrung = false } = {}) {
   await seite.fill('input[name=email]', email);
   await seite.fill('input[name=passwort]', passwort);
+  await seite.$eval('#anmeldeform .meldung', (el) => { el.textContent = ''; });
   await seite.click('#anmeldeform button[type=submit]');
+  // Entweder eine Fehlermeldung oder die fertig gezeichnete App
+  await seite.waitForSelector('.meldung:not(:empty), #verlauf > *');
+  if (!einfuehrung && await seite.locator('.einf').count()) {
+    await seite.click('.einf [data-einf=ende]');
+    await seite.waitForSelector('.einf', { state: 'detached' });
+  }
 }
 
 let gezaehlt = 0;
@@ -277,6 +291,90 @@ test('schmale Ansicht: Liste als Schublade', async () => {
   assert.equal(await seite.locator('.von-claude').count(), 1);
   const breite = await seite.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(breite <= 390, `waagerecht scrollbar: ${breite}`);
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
+test('Einführung: Begrüßung, Home-Bildschirm, erste Anmeldung, „Über mich“', async () => {
+  const { seite, kontext, fehler } = await neueSeite({ ...devices['iPhone 13'], begruessen: true });
+  const titel = () => seite.locator('.einf h2').innerText();
+
+  // Vor der Anmeldung: Begrüßung und, auf dem iPhone, der Home-Bildschirm
+  await seite.waitForSelector('.einf');
+  assert.equal(await titel(), 'Hallo!');
+  assert.equal(await seite.locator('.einf-punkte span').count(), 2);
+  await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await titel(), 'Leg dir die App auf den Home-Bildschirm');
+  assert.match(await seite.locator('.einf-inhalt').innerText(), /Zum Home-Bildschirm/);
+  await seite.click('.einf button:has-text("Im Browser weiter")');
+  await seite.waitForSelector('#anmeldeform');
+
+  // Beim nächsten Öffnen kommt die Begrüßung nicht wieder
+  await seite.reload();
+  await seite.waitForSelector('#anmeldeform');
+  assert.equal(await seite.locator('.einf').count(), 0);
+
+  // Nach der ersten Anmeldung: vier Seiten, Zurück behält das Eingetragene
+  await melde(seite, 'amy@test.de', 'geheim-amy', { einfuehrung: true });
+  await seite.waitForSelector('.einf');
+  assert.equal(await titel(), 'Schön, dass du da bist!');
+  assert.equal(await seite.locator('.einf [data-einf=zurueck]').count(), 0);
+  await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await titel(), 'So funktioniert’s');
+  await seite.click('.einf [data-einf=zurueck]');
+  assert.equal(await titel(), 'Schön, dass du da bist!');
+  await seite.click('.einf [data-einf=weiter]');
+  await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await titel(), 'Gut zu wissen');
+  await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await titel(), 'Erzähl Claude ein bisschen über dich');
+  assert.equal(await seite.locator('.einf [data-einf=ende]').count(), 0);
+  await seite.fill('#einf-ueber-mich', 'Ich heiße Amy.');
+  await seite.click('.einf [data-einf=zurueck]');
+  await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await seite.inputValue('#einf-ueber-mich'), 'Ich heiße Amy.');
+  await seite.click('.einf button:has-text("Los geht’s")');
+  await seite.waitForSelector('.einf', { state: 'detached' });
+
+  // Leeres Gespräch mit Beispielen; ein Beispiel füllt nur das Feld
+  assert.equal(await seite.locator('.beispiel').count(), 4);
+  const vorher = attrappe.anfragen.length;
+  await seite.locator('.beispiel').first().click();
+  assert.equal(await seite.inputValue('#frage'), 'Was kann ich heute mit Nudeln, Spinat und Feta kochen?');
+  assert.equal(attrappe.anfragen.length, vorher);
+  gezaehlt = vorher;
+  await seite.click('#senden');
+  await warteAufAntwort(seite);
+  assert.match(attrappe.anfragen.at(-1).koerper.system[0].text, /<ueber_mich>\nIch heiße Amy\.\n<\/ueber_mich>/);
+
+  // Nach dem Neuladen keine Einführung mehr (die Liste liegt in der
+  // geschlossenen Schublade, deshalb nur „vorhanden“, nicht „sichtbar“)
+  await seite.reload();
+  await seite.waitForSelector('.eintrag', { state: 'attached' });
+  assert.equal(await seite.locator('.einf').count(), 0);
+
+  // Aus den Einstellungen noch einmal, mit dem gespeicherten „Über mich“
+  await seite.click('[data-act=leiste]');
+  await seite.click('.leiste-fuss [data-act=einstellungen]');
+  await seite.click('#einstellungen button:has-text("Einführung ansehen")');
+  await seite.waitForSelector('.einf');
+  for (let i = 0; i < 3; i++) await seite.click('.einf [data-einf=weiter]');
+  assert.equal(await seite.inputValue('#einf-ueber-mich'), 'Ich heiße Amy.');
+  await seite.click('.einf [data-einf=zurueck]');
+  await seite.click('.einf [data-einf=ende]');
+  await seite.waitForSelector('.einf', { state: 'detached' });
+
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
+test('Einführung am Rechner: ohne Home-Bildschirm-Seite', async () => {
+  const { seite, kontext, fehler } = await neueSeite({ begruessen: true });
+  await seite.waitForSelector('.einf');
+  assert.equal(await seite.locator('.einf h2').innerText(), 'Hallo!');
+  assert.equal(await seite.locator('.einf-punkte span').count(), 0);
+  await seite.click('.einf button:has-text("Zur Anmeldung")');
+  await seite.waitForSelector('#anmeldeform');
   assert.deepEqual(fehler, []);
   await kontext.close();
 });

@@ -446,6 +446,12 @@ svg {
   text-align: center;
 }
 
+@media (max-height: 760px) {
+  .leer {
+    margin-top: 2rem;
+  }
+}
+
 .leer h2 {
   font-size: 1.5rem;
   margin: 0 0 0.5rem;
@@ -453,6 +459,31 @@ svg {
 
 .leer > p {
   color: var(--text-leise);
+}
+
+.beispiele {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem;
+  margin: 1.5rem 0 0;
+  text-align: left;
+}
+
+.beispiel {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--linie-stark);
+  border-radius: 0.85rem;
+  background: var(--feld);
+  font-size: 0.93rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.beispiel:hover {
+  border-color: var(--akzent);
 }
 
 .tipp {
@@ -783,6 +814,127 @@ svg {
 .knopf-senden.stopp svg rect {
   fill: currentColor;
   stroke: none;
+}
+
+/* ---------- Einführung ---------- */
+
+.einf {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--grund);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.einf-in {
+  width: 100%;
+  max-width: 520px;
+  height: 100%;
+  max-height: 760px;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1.25rem 1rem;
+}
+
+.einf-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.5rem;
+}
+
+.einf-punkte {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.einf-punkte span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--linie-stark);
+}
+
+.einf-punkte span.an {
+  background: var(--akzent);
+  width: 1.4rem;
+  border-radius: 0.25rem;
+}
+
+.einf-weg {
+  font-size: 0.92rem;
+  padding: 0.5rem 0;
+}
+
+/* min-height: 0, sonst wächst der Inhalt über den Bildschirm hinaus, statt
+ * zu scrollen, und schiebt die Knöpfe nach unten weg. */
+.einf-inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 0;
+}
+
+.einf-bild {
+  font-size: 3rem;
+  line-height: 1;
+  margin: 0.5rem 0 1rem;
+}
+
+.einf-inhalt h2 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin: 0 0 0.85rem;
+}
+
+.einf-inhalt p {
+  margin: 0 0 0.85rem;
+}
+
+.einf-liste,
+.einf-schritte {
+  margin: 0 0 1rem;
+  padding-left: 1.3rem;
+}
+
+.einf-liste li,
+.einf-schritte li {
+  margin: 0 0 0.6rem;
+}
+
+.einf-symbol {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  color: #2f7ef6;
+}
+
+.einf-inhalt textarea {
+  width: 100%;
+  margin: 0.25rem 0 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--linie-stark);
+  border-radius: 0.75rem;
+  background: var(--feld);
+  font-size: 16px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.einf-fuss {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.einf-fuss .knopf-haupt {
+  flex: 1;
+  max-width: 16rem;
+  margin-left: auto;
 }
 
 /* ---------- Einstellungen ---------- */
