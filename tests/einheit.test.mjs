@@ -117,5 +117,12 @@ test('Kosten', () => {
   const usd = kostenUSD({ input_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, cache_creation_input_tokens: 0, output_tokens: 100_000 });
   assert.ok(Math.abs(usd - (4 + 0.2 + 2)) < 1e-9);
   assert.equal(kostenUSD(null), 0);
+  // Der Berater mit Fables Preisen, mehrere Teile werden addiert
+  const mitBerater = kostenUSD({
+    input_tokens: 0, output_tokens: 0,
+    iterations: [{ type: 'advisor_message', model: 'claude-fable-5-2', input_tokens: 1_000_000, output_tokens: 1_000_000 }],
+  });
+  assert.ok(Math.abs(mitBerater - 48) < 1e-9);
+  assert.ok(Math.abs(kostenUSD([{ output_tokens: 1_000_000 }, { output_tokens: 1_000_000 }]) - 40) < 1e-9);
   assert.equal(alsDollar(0.004), 'unter 1 Cent');
 });

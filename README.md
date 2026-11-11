@@ -111,6 +111,14 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
 - **Ausweichmodell.** Lehnt Opus eine Anfrage aus Sicherheitsgründen ab,
   beantwortet ein anderes Claude-Modell sie im selben Aufruf
   (`fallbacks: "default"`), statt dass die Antwort leer bleibt.
+- **Berater.** Opus kann bei schwierigen Fragen Claude Fable 5.2 um Rat
+  fragen (Advisor-Werkzeug), so oft es will, ohne Grenze. Wann, entscheidet
+  Opus selbst; der Systemtext sagt nur, wofür sich das lohnt. Den Rat liefert
+  die API verschlüsselt, er geht wie alles andere unverändert ins Gespräch
+  zurück. Das Werkzeug ist in jedem Gespräch gleich und darf sich nicht
+  ändern (sonst verliert Claude frühere Denkschritte). Während Opus fragt,
+  zeigt die App „fragt Fable um Rat“. Pausiert eine Antwort dabei
+  (`pause_turn`), setzt die Funktion sie selbst fort.
 - **Denktiefe.** `effort: "medium"`, die Voreinstellung von Opus 5.5. Für
   ein Gespräch ist das meist genau richtig. Wer gründlichere Antworten will
   und längere Wartezeiten in Kauf nimmt, stellt in `handler.ts` auf `"high"`.
@@ -122,6 +130,11 @@ Ausgabe-Tokens; die Denkschritte zählen zur Ausgabe. Eine kurze Frage mit
 Antwort liegt bei 1 bis 3 Cent, ein Gespräch mit zehn Nachrichten bei 20 bis
 40 Cent. Lange Gespräche werden teurer, weil jedes Mal der ganze Verlauf
 mitgeht; der Zwischenspeicher dämpft das.
+
+Fragt Opus den Berater, kommt Fable 5.2 dazu: 8 $ pro Million Eingabe-Tokens
+und 40 $ pro Million Ausgabe-Tokens, also doppelt so viel wie Opus. Bezahlt
+wird das nur bei Fragen, bei denen Opus wirklich fragt. Die Schätzung unter
+„Verbrauch“ rechnet Fables Anteil mit Fables Preisen.
 
 Das monatliche API-Guthaben aus dem Abo verfällt am Ende jedes
 Abrechnungszeitraums. Ist es aufgebraucht, sagt die App das, und es geht

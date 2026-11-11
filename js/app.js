@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '2';
+export const FASSUNG = '3';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -318,12 +318,14 @@ function laufHier() {
 }
 
 function laufendHtml(l) {
+  const zustandText = l.berater ? 'fragt Fable um Rat' : l.denkt ? 'denkt nach' : 'liest';
+  const status = `<div class="denkt" role="status"><span></span><span></span><span></span>
+      <em>${zustandText}</em></div>`;
   if (!l.text) {
-    return `<div class="nachricht von-claude laufend" id="laufend">
-      <div class="denkt" role="status"><span></span><span></span><span></span>
-      <em>${l.denkt ? 'denkt nach' : 'liest'}</em></div></div>`;
+    return `<div class="nachricht von-claude laufend" id="laufend">${status}</div>`;
   }
-  return `<div class="nachricht von-claude laufend" id="laufend"><div class="md">${markdownZuHtml(l.text)}</div></div>`;
+  // Fragt Opus mitten in der Antwort um Rat, steht der Hinweis unter dem Text.
+  return `<div class="nachricht von-claude laufend" id="laufend"><div class="md">${markdownZuHtml(l.text)}</div>${l.berater ? status : ''}</div>`;
 }
 
 function hinweisHtml() {
@@ -457,7 +459,11 @@ async function antwortHolen(g) {
         signal: lauf.ctrl.signal,
         beiEreignis: (e) => {
           if (e.t === 'denkt') lauf.denkt = true;
-          if (e.t === 'text') lauf.text += e.d;
+          if (e.t === 'berater') lauf.berater = true;
+          if (e.t === 'text') {
+            lauf.text += e.d;
+            lauf.berater = false;
+          }
           zeichneLaufendBald();
         },
       });
@@ -537,7 +543,7 @@ function oeffneEinstellungen() {
 
       <p class="klein fuss">Die Gespräche liegen nur auf diesem Gerät. Für jede Antwort geht das
         Gespräch über den Server der App an Anthropic; der Server selbst speichert nichts.
-        Modell: Claude Opus 5.5 · Fassung ${FASSUNG}</p>
+        Modell: Claude Opus 5.5, bei schwierigen Fragen mit Rat von Claude Fable 5.2 · Fassung ${FASSUNG}</p>
     </form>`;
   dialog.showModal();
 }

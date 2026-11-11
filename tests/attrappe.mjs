@@ -12,6 +12,9 @@
  *   „langsam“   die Antwort kommt in vielen kleinen Stücken (für „Stopp“)
  *   „xss“       die Antwort enthält HTML, das nicht ausgeführt werden darf
  *   „beispiel“  eine längere Antwort mit allem, was Markdown hergibt
+ *   „berater“   Opus fragt erst den Berater (advisor), dann kommt der Text
+ *   „pause“     wie „berater“, aber die erste Antwort endet mit pause_turn;
+ *               die Fortsetzung bringt den Rat und den Text
  */
 
 const BEISPIEL = `Gern! Hier ein kurzer Überblick, wie du **Sauerteig** ansetzt.
@@ -64,7 +67,7 @@ function lesen(req) {
 const warte = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function letzteFrage(nachrichten) {
-  const n = nachrichten[nachrichten.length - 1];
+  const n = nachrichten.findLast((m) => m.role === 'user');
   if (typeof n.content === 'string') return n.content;
   return n.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
@@ -155,14 +158,24 @@ export async function starteAttrappe() {
       res.on('close', () => { if (!eintrag.fertig) eintrag.abgebrochen = true; });
 
       const frage = letzteFrage(koerper.messages);
+      // Fortsetzung nach pause_turn: Die letzte Nachricht ist die angefangene Antwort.
+      const fortsetzung = koerper.messages.at(-1).role === 'assistant';
       let text = `Antwort ${nr}: Das ist **wichtig**.\n\n- erstens\n- zweitens\n\nDu hast gefragt: ${frage}`;
       if (/xss/i.test(frage)) text = 'Hier <img src=x onerror="window.__xss=1"> und <script>window.__xss=2</script> Ende.';
       if (/beispiel/i.test(frage)) text = BEISPIEL;
       const langsam = /langsam/i.test(frage);
+      const berater = /berater|pause/i.test(frage);
+      const pausiert = /pause/i.test(frage) && !fortsetzung;
       const stuecke = langsam ? Array.from({ length: 200 }, (_, i) => `Wort${i} `) : text.match(/.{1,12}/gs);
 
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'request-id': `req_${nr}` });
       const sende = (typ, daten) => res.write(`event: ${typ}\ndata: ${JSON.stringify({ type: typ, ...daten })}\n\n`);
+      let index = 0;
+      const block = (inhalt) => {
+        sende('content_block_start', { index, content_block: inhalt });
+        sende('content_block_stop', { index });
+        index++;
+      };
 
       sende('message_start', {
         message: {
@@ -171,18 +184,48 @@ export async function starteAttrappe() {
           usage: { input_tokens: 1000, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2000 },
         },
       });
-      sende('content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '', signature: '' } });
-      sende('content_block_delta', { index: 0, delta: { type: 'signature_delta', signature: `sig-${nr}` } });
-      sende('content_block_stop', { index: 0 });
+      if (!fortsetzung) {
+        sende('content_block_start', { index, content_block: { type: 'thinking', thinking: '', signature: '' } });
+        sende('content_block_delta', { index, delta: { type: 'signature_delta', signature: `sig-${nr}` } });
+        sende('content_block_stop', { index });
+        index++;
+      }
       sende('ping', {});
-      sende('content_block_start', { index: 1, content_block: { type: 'text', text: '' } });
+      // Der Berater: Opus ruft das Werkzeug advisor, der Rat kommt verschlüsselt.
+      if (berater && !fortsetzung) {
+        block({ type: 'server_tool_use', id: `srvtoolu_${nr}`, name: 'advisor', input: {} });
+      }
+      if (pausiert) {
+        sende('message_delta', { delta: { stop_reason: 'pause_turn', stop_sequence: null }, usage: { output_tokens: 50 } });
+        sende('message_stop', {});
+        eintrag.fertig = true;
+        res.end();
+        return;
+      }
+      if (berater) {
+        const zu = fortsetzung
+          ? koerper.messages.at(-1).content.find((b) => b.type === 'server_tool_use').id
+          : `srvtoolu_${nr}`;
+        block({
+          type: 'advisor_tool_result', tool_use_id: zu,
+          content: { type: 'advisor_redacted_result', encrypted_content: `enc-${nr}`, stop_reason: 'end_turn' },
+        });
+      }
+      sende('content_block_start', { index, content_block: { type: 'text', text: '' } });
       for (const s of stuecke) {
         if (res.destroyed) return;
-        sende('content_block_delta', { index: 1, delta: { type: 'text_delta', text: s } });
+        sende('content_block_delta', { index, delta: { type: 'text_delta', text: s } });
         await warte(langsam ? 40 : 5);
       }
-      sende('content_block_stop', { index: 1 });
-      sende('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 500 } });
+      sende('content_block_stop', { index });
+      const usage = { output_tokens: 500 };
+      if (berater) {
+        usage.iterations = [
+          { type: 'message', input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 2000 },
+          { type: 'advisor_message', model: 'claude-fable-5-2', input_tokens: 3000, output_tokens: 800, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        ];
+      }
+      sende('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage });
       sende('message_stop', {});
       eintrag.fertig = true;
       res.end();
