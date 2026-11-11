@@ -31,11 +31,14 @@ function teil(nutzung, preis) {
   ) / 1_000_000;
 }
 
-/* Nimmt eine usage oder, nach einer fortgesetzten Antwort, mehrere. */
-export function kostenUSD(nutzung) {
+const preisFuer = (modell) => (/fable|mythos/.test(modell || '') ? PREISE.fable : PREISE.opus);
+
+/* Nimmt eine usage oder, nach einer fortgesetzten Antwort, mehrere, und das
+ * Modell, das geantwortet hat (Opus, wenn keins dasteht). */
+export function kostenUSD(nutzung, modell = '') {
   if (!nutzung) return 0;
-  if (Array.isArray(nutzung)) return nutzung.reduce((s, u) => s + kostenUSD(u), 0);
-  let summe = teil(nutzung, PREISE.opus);
+  if (Array.isArray(nutzung)) return nutzung.reduce((s, u) => s + kostenUSD(u, modell), 0);
+  let summe = teil(nutzung, preisFuer(modell));
   for (const it of nutzung.iterations || []) {
     if (it?.type === 'advisor_message') {
       summe += teil(it, /fable|mythos/.test(it.model || '') ? PREISE.fable : PREISE.opus);

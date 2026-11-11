@@ -434,6 +434,42 @@ test('Frage ohne Antwort: Hinweis nach dem Neuladen, und nach dem Hintergrund wi
   await kontext.close();
 });
 
+test('Modell und Aufwand wählen: gilt für neue Gespräche, das laufende bleibt', async () => {
+  const { seite, kontext, fehler } = await neueSeite();
+  await melde(seite, 'ich@test.de', 'geheim-ich');
+  await frage(seite, 'Erstes Gespräch');
+  await warteAufAntwort(seite);
+  assert.equal(attrappe.anfragen.at(-1).koerper.model, 'claude-opus-5-5');
+
+  await seite.click('.leiste-fuss [data-act=einstellungen]');
+  assert.equal(await seite.inputValue('#wahl-modell'), 'claude-opus-5-5');
+  assert.equal(await seite.inputValue('#wahl-aufwand'), 'medium');
+  await seite.selectOption('#wahl-modell', 'claude-fable-5-2');
+  await seite.selectOption('#wahl-aufwand', 'xhigh');
+  await seite.waitForSelector('#wahl-modell-text:has-text("Fable antwortet selbst")');
+  await seite.click('#einstellungen button[value=zu]');
+
+  // Das laufende Gespräch bleibt bei Opus
+  await frage(seite, 'Weiter im ersten');
+  await warteAufAntwort(seite);
+  assert.equal(attrappe.anfragen.at(-1).koerper.model, 'claude-opus-5-5');
+  assert.deepEqual(attrappe.anfragen.at(-1).koerper.output_config, { effort: 'medium' });
+
+  // Ein neues Gespräch nimmt die Wahl, auch nach dem Neuladen
+  await seite.reload();
+  await seite.waitForSelector('.eintrag');
+  await seite.click('.leiste .knopf-neu');
+  await frage(seite, 'Neues mit Fable');
+  await warteAufAntwort(seite);
+  const k = attrappe.anfragen.at(-1).koerper;
+  assert.equal(k.model, 'claude-fable-5-2');
+  assert.deepEqual(k.output_config, { effort: 'xhigh' });
+  assert.equal(k.tools, undefined);
+
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
 test('Einführung am Rechner: ohne Home-Bildschirm-Seite', async () => {
   const { seite, kontext, fehler } = await neueSeite({ begruessen: true });
   await seite.waitForSelector('.einf');

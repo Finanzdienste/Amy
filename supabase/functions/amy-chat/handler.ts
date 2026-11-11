@@ -79,7 +79,30 @@ export type Umgebung = {
 export type Kontext = {
   ueberMich?: string;
   datum?: string;
+  /** Beim Anlegen des Gesprächs gewählt; fehlt bei älteren Gesprächen. */
+  modell?: string;
+  aufwand?: string;
 };
+
+/*
+ * Was in der App wählbar ist. Alles andere fällt auf die Vorgabe zurück.
+ *
+ *   Opus 5.5 mit Berater   Opus schreibt, fragt bei Schwierigem Fable 5.2.
+ *   Fable 5.2              Fable schreibt selbst. Doppelt so teuer, und auf
+ *                          hohem Aufwand oft minutenlang; ein Berater ist hier
+ *                          sinnlos (Fable nimmt nur sich selbst als Berater).
+ */
+export const MODELLE: Record<string, { berater: boolean }> = {
+  [MODELL]: { berater: true },
+  [BERATER]: { berater: false },
+};
+export const AUFWAENDE = ["low", "medium", "high", "xhigh", "max"];
+
+export function einstellungenAus(kontext: Kontext) {
+  const modell = MODELLE[kontext.modell ?? ""] ? kontext.modell! : MODELL;
+  const aufwand = AUFWAENDE.includes(kontext.aufwand ?? "") ? kontext.aufwand! : "medium";
+  return { modell, aufwand, berater: MODELLE[modell].berater };
+}
 
 /*
  * Der Systemtext. Er wird aus dem Kontext gebaut, den die App beim Anlegen
@@ -91,7 +114,7 @@ export type Kontext = {
  * Wer diesen Text ändert, ändert ihn auch für laufende Gespräche. Das geht,
  * kostet aber beim nächsten Mal in jedem dieser Gespräche den Zwischenspeicher.
  */
-export function systemText(kontext: Kontext): string {
+export function systemText(kontext: Kontext, { berater = true } = {}): string {
   const teile = [
     "Du sprichst mit jemandem über eine kleine private Chat-App. " +
       "Antworte in der Sprache, in der man dir schreibt, und so lang, " +
@@ -101,12 +124,16 @@ export function systemText(kontext: Kontext): string {
       "Links, Code und einfache Tabellen.",
     "In dieser App hast du keinen Zugang zum Internet. Wenn eine Frage " +
       "von Ereignissen nach deinem Wissensstand abhängen könnte, sag das.",
-    "Du hast einen Berater, das Werkzeug advisor, ein noch stärkeres " +
-      "Modell. Frag ihn, wenn gründliches Nachdenken die Antwort spürbar " +
-      "besser macht: knifflige Abwägungen und Entscheidungen, Rechnungen, " +
-      "Pläne mit vielen Teilen, Fakten, bei denen du dir unsicher bist. " +
-      "Für Plaudereien und einfache Fragen brauchst du ihn nicht.",
   ];
+  if (berater) {
+    teile.push(
+      "Du hast einen Berater, das Werkzeug advisor, ein noch stärkeres " +
+        "Modell. Frag ihn, wenn gründliches Nachdenken die Antwort spürbar " +
+        "besser macht: knifflige Abwägungen und Entscheidungen, Rechnungen, " +
+        "Pläne mit vielen Teilen, Fakten, bei denen du dir unsicher bist. " +
+        "Für Plaudereien und einfache Fragen brauchst du ihn nicht.",
+    );
+  }
   if (kontext.datum) {
     teile.push(`Das Gespräch hat am ${kontext.datum} begonnen.`);
   }
@@ -238,22 +265,23 @@ export function erstelleHandler(env: Umgebung) {
       return json(400, { fehler: nachrichten }, cors);
     }
 
-    const system = [{ type: "text", text: systemText(eingabe.kontext ?? {}) }];
+    const wahl = einstellungenAus(eingabe.kontext ?? {});
+    const system = [{ type: "text", text: systemText(eingabe.kontext ?? {}, wahl) }];
     const anfrage = (verlauf: unknown[]) =>
       client.beta.messages.stream({
-        model: MODELL,
+        model: wahl.modell,
         max_tokens: 64000,
         // deno-lint-ignore no-explicit-any
         system: system as any,
         // deno-lint-ignore no-explicit-any
         messages: verlauf as any,
         // deno-lint-ignore no-explicit-any
-        tools: WERKZEUGE as any,
+        ...(wahl.berater ? { tools: WERKZEUGE as any } : {}),
         thinking: {
           type: "adaptive",
           block_binding: { prefix_mismatch_behavior: "drop_block" },
         },
-        output_config: { effort: "medium" },
+        output_config: { effort: wahl.aufwand as "medium" },
         // Merkt sich den Gesprächsanfang bei Anthropic für ein paar Minuten.
         // Die nächste Frage im selben Gespräch kostet dann für den bekannten
         // Teil nur einen Bruchteil.

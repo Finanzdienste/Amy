@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '4';
+export const FASSUNG = '5';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -29,6 +29,26 @@ const BEISPIELE = [
 ];
 
 const BEGRUESST = 'fragmal.begruesst';
+
+/* Wählbar in den Einstellungen. Die Funktion amy-chat prüft dieselbe Liste. */
+const MODELLE = {
+  'claude-opus-5-5': {
+    name: 'Opus 5.5 + Berater (empfohlen)',
+    text: 'Opus antwortet und fragt bei schwierigen Fragen Fable 5.2 um Rat. Schnell und günstig.',
+  },
+  'claude-fable-5-2': {
+    name: 'Fable 5.2 (das stärkste)',
+    text: 'Fable antwortet selbst. Etwa doppelt so teuer und spürbar langsamer – lohnt sich für wirklich knifflige Sachen.',
+  },
+};
+const AUFWAENDE = {
+  low: { name: 'Niedrig', text: 'Schnelle, kurze Antworten mit wenig Nachdenken.' },
+  medium: { name: 'Mittel (empfohlen)', text: 'Für die meisten Gespräche genau richtig.' },
+  high: { name: 'Hoch', text: 'Denkt gründlicher nach, dauert etwas länger.' },
+  xhigh: { name: 'Sehr hoch', text: 'Für schwierige Aufgaben. Kann eine Weile dauern.' },
+  max: { name: 'Maximal', text: 'So gründlich wie möglich. Kann mehrere Minuten dauern und bei sehr langen Antworten abbrechen.' },
+};
+const VORGABE = { modell: 'claude-opus-5-5', aufwand: 'medium' };
 
 const app = document.getElementById('app');
 const grob = matchMedia('(pointer: coarse)').matches;
@@ -192,13 +212,17 @@ async function zeigeApp() {
     <dialog id="einstellungen" class="dialog"></dialog>`;
 
   const id = nutzerId();
-  const [gespraeche, ueberMich, eingefuehrt] = await Promise.all([
+  const [gespraeche, ueberMich, eingefuehrt, modell, aufwand] = await Promise.all([
     speicher.gespraecheVon(id),
     speicher.holeEinstellung(id, 'ueberMich'),
     speicher.holeEinstellung(id, 'eingefuehrt'),
+    speicher.holeEinstellung(id, 'modell'),
+    speicher.holeEinstellung(id, 'aufwand'),
   ]);
   zustand.gespraeche = gespraeche;
   zustand.ueberMich = ueberMich || '';
+  zustand.modell = MODELLE[modell] ? modell : VORGABE.modell;
+  zustand.aufwand = AUFWAENDE[aufwand] ? aufwand : VORGABE.aufwand;
   zustand.aktuell = null;
   speicher.dauerhaftBitten();
 
@@ -405,7 +429,7 @@ function neuesGespraech() {
     erstellt: Date.now(),
     geaendert: Date.now(),
     // Wird hier festgehalten und danach nie mehr geändert (siehe store.js).
-    kontext: { ueberMich: zustand.ueberMich, datum: heute() },
+    kontext: { ueberMich: zustand.ueberMich, datum: heute(), modell: zustand.modell, aufwand: zustand.aufwand },
     nachrichten: [],
     verbrauch: [],
   };
@@ -477,7 +501,7 @@ async function antwortHolen(g) {
       if (Array.isArray(fertig.inhalt) && fertig.inhalt.length) {
         g.nachrichten.push({ role: 'assistant', content: fertig.inhalt });
       }
-      g.verbrauch.push({ zeit: Date.now(), usd: kostenUSD(fertig.nutzung) });
+      g.verbrauch.push({ zeit: Date.now(), usd: kostenUSD(fertig.nutzung, fertig.modell) });
       if (fertig.stop === 'max_tokens') {
         zustand.hinweis = { id: g.id, text: 'Die Antwort war zu lang und wurde abgeschnitten. Schreib „weiter“, dann setzt Claude fort.' };
       } else if (fertig.stop === 'refusal') {
@@ -563,6 +587,19 @@ function oeffneEinstellungen() {
         <span class="gespeichert" role="status"></span>
       </div>
 
+      <h3>Modell und Aufwand</h3>
+      <p class="klein">Gilt ab dem nächsten neuen Gespräch. Laufende Gespräche bleiben, wie sie angefangen haben.</p>
+      <label class="wahl">Modell
+        <select id="wahl-modell">${Object.entries(MODELLE).map(([k, m]) =>
+          `<option value="${k}"${k === zustand.modell ? ' selected' : ''}>${m.name}</option>`).join('')}</select>
+      </label>
+      <p class="klein" id="wahl-modell-text">${MODELLE[zustand.modell].text}</p>
+      <label class="wahl">Aufwand
+        <select id="wahl-aufwand">${Object.entries(AUFWAENDE).map(([k, a]) =>
+          `<option value="${k}"${k === zustand.aufwand ? ' selected' : ''}>${a.name}</option>`).join('')}</select>
+      </label>
+      <p class="klein" id="wahl-aufwand-text">${AUFWAENDE[zustand.aufwand].text}</p>
+
       <h3>Verbrauch</h3>
       <p>Diesen Monat auf diesem Gerät: <strong>${alsDollar(verbrauchDiesenMonat())}</strong>
         <span class="klein">(geschätzt)</span></p>
@@ -576,9 +613,24 @@ function oeffneEinstellungen() {
 
       <p class="klein fuss">Die Gespräche liegen nur auf diesem Gerät. Für jede Antwort geht das
         Gespräch über den Server der App an Anthropic; der Server selbst speichert nichts.
-        Modell: Claude Opus 5.5, bei schwierigen Fragen mit Rat von Claude Fable 5.2 · Fassung ${FASSUNG}</p>
+        Fassung ${FASSUNG}</p>
     </form>`;
   dialog.showModal();
+}
+
+/* Modell oder Aufwand gewählt: gleich speichern, gilt fürs nächste neue Gespräch. */
+async function speichereWahl(feld) {
+  const id = nutzerId();
+  if (feld.id === 'wahl-modell' && MODELLE[feld.value]) {
+    zustand.modell = feld.value;
+    await speicher.setzeEinstellung(id, 'modell', feld.value);
+    $('#wahl-modell-text').textContent = MODELLE[feld.value].text;
+  }
+  if (feld.id === 'wahl-aufwand' && AUFWAENDE[feld.value]) {
+    zustand.aufwand = feld.value;
+    await speicher.setzeEinstellung(id, 'aufwand', feld.value);
+    $('#wahl-aufwand-text').textContent = AUFWAENDE[feld.value].text;
+  }
 }
 
 async function speichereUeberMich() {
@@ -595,6 +647,10 @@ async function speichereUeberMich() {
 function leiste(offen) {
   document.body.classList.toggle('leiste-offen', offen);
 }
+
+app.addEventListener('change', (e) => {
+  if (e.target.matches('#wahl-modell, #wahl-aufwand')) speichereWahl(e.target);
+});
 
 app.addEventListener('click', async (e) => {
   const ziel = e.target.closest('[data-act]');
