@@ -1,0 +1,307 @@
+/*
+ * Der Server-Teil der App: nimmt ein Gespräch entgegen, fragt Claude und
+ * schickt die Antwort Stück für Stück zurück.
+ *
+ * Warum es diesen Teil überhaupt gibt: Der API-Schlüssel darf nie in den
+ * Browser. Die App liegt öffentlich auf GitHub Pages, und wer den Schlüssel
+ * fände, könnte das Guthaben verbrauchen. Hier liegt er als Secret in
+ * Supabase und verlässt den Server nicht.
+ *
+ * Wer fragen darf, entscheidet ERLAUBTE_NUTZER: eine Liste von Nutzer-IDs aus
+ * Supabase Auth. Eine gültige Anmeldung allein reicht nicht, denn im selben
+ * Supabase-Projekt könnten sich auch andere Konten anlegen.
+ *
+ * Die Funktion speichert nichts. Gespräche liegen nur auf dem Gerät, auf dem
+ * sie geführt werden, und kommen bei jeder Frage vollständig mit.
+ */
+
+import Anthropic from "npm:@anthropic-ai/sdk@1.7.0";
+
+export const MODELL = "claude-opus-5-5";
+
+/*
+ * Die beiden Beta-Funktionen:
+ *
+ *   server-side-fallback   Lehnt Opus eine Anfrage aus Sicherheitsgründen ab,
+ *                          beantwortet ein anderes Modell sie im selben Aufruf,
+ *                          statt dass die Antwort einfach leer bleibt.
+ *
+ *   thinking-binding       Claudes Denkschritte gelten nur im unveränderten
+ *                          Gespräch. Sollte sich davor doch etwas geändert
+ *                          haben, fallen die betroffenen Denkschritte still
+ *                          weg, statt dass die ganze Anfrage scheitert.
+ */
+export const BETAS = [
+  "server-side-fallback-2026-07-01",
+  "thinking-binding-controls-2026-08-01",
+];
+
+/* Obergrenze für eine Anfrage. Ein langes Gespräch mit viel Text liegt weit
+ * darunter; das hier fängt nur Unsinn ab. */
+const MAX_BYTES = 12 * 1024 * 1024;
+
+export type Umgebung = {
+  anthropicKey?: string;
+  /** Nur für die Tests: lenkt die Anfragen an eine simulierte API. */
+  anthropicBaseUrl?: string;
+  supabaseUrl: string;
+  publishableKey: string;
+  erlaubteNutzer: string[];
+  erlaubteUrspruenge: string[];
+};
+
+export type Kontext = {
+  ueberMich?: string;
+  datum?: string;
+};
+
+/*
+ * Der Systemtext. Er wird aus dem Kontext gebaut, den die App beim Anlegen
+ * eines Gesprächs festhält, und bleibt deshalb während des ganzen Gesprächs
+ * Zeichen für Zeichen gleich. Das ist wichtig: Ändert sich der Systemtext
+ * mitten im Gespräch, verliert Claude seine früheren Denkschritte, und der
+ * Zwischenspeicher bei Anthropic greift nicht mehr.
+ *
+ * Wer diesen Text ändert, ändert ihn auch für laufende Gespräche. Das geht,
+ * kostet aber beim nächsten Mal in jedem dieser Gespräche den Zwischenspeicher.
+ */
+export function systemText(kontext: Kontext): string {
+  const teile = [
+    "Du sprichst mit jemandem über eine kleine private Chat-App. " +
+      "Antworte in der Sprache, in der man dir schreibt, und so lang, " +
+      "wie die Frage es verlangt: kurz bei kurzen Fragen, gründlich, " +
+      "wenn jemand etwas Gründliches braucht.",
+    "Die App zeigt Markdown an: Überschriften, Listen, Fett und Kursiv, " +
+      "Links, Code und einfache Tabellen.",
+    "In dieser App hast du keinen Zugang zum Internet. Wenn eine Frage " +
+      "von Ereignissen nach deinem Wissensstand abhängen könnte, sag das.",
+  ];
+  if (kontext.datum) {
+    teile.push(`Das Gespräch hat am ${kontext.datum} begonnen.`);
+  }
+  const ueberMich = (kontext.ueberMich ?? "").trim();
+  if (ueberMich) {
+    teile.push(
+      "Das hat die Person in den Einstellungen über sich eingetragen:\n" +
+        `<ueber_mich>\n${ueberMich}\n</ueber_mich>`,
+    );
+  }
+  return teile.join("\n\n");
+}
+
+function corsKoepfe(req: Request, env: Umgebung): Record<string, string> {
+  const herkunft = req.headers.get("origin") ?? "";
+  const erlaubt = env.erlaubteUrspruenge.includes(herkunft)
+    ? herkunft
+    : env.erlaubteUrspruenge[0] ?? "";
+  return {
+    "Access-Control-Allow-Origin": erlaubt,
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
+
+function json(
+  status: number,
+  daten: unknown,
+  koepfe: Record<string, string>,
+): Response {
+  return new Response(JSON.stringify(daten), {
+    status,
+    headers: { ...koepfe, "Content-Type": "application/json; charset=utf-8" },
+  });
+}
+
+/* Fragt Supabase Auth, wem das Token gehört. Supabase selbst entscheidet, ob
+ * es gültig ist; abgelaufene oder gefälschte Tokens kommen mit 401 zurück. */
+async function nutzerZumToken(
+  token: string,
+  env: Umgebung,
+): Promise<{ id: string } | null> {
+  const antwort = await fetch(`${env.supabaseUrl}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${token}`, apikey: env.publishableKey },
+  });
+  if (!antwort.ok) return null;
+  const nutzer = await antwort.json();
+  return typeof nutzer?.id === "string" ? { id: nutzer.id } : null;
+}
+
+type Nachricht = { role: "user" | "assistant"; content: unknown };
+
+function pruefeNachrichten(wert: unknown): Nachricht[] | string {
+  if (!Array.isArray(wert) || wert.length === 0) {
+    return "Es fehlen die Nachrichten.";
+  }
+  for (const n of wert) {
+    if (!n || (n.role !== "user" && n.role !== "assistant")) {
+      return "Eine Nachricht hat keine gültige Rolle.";
+    }
+    if (typeof n.content !== "string" && !Array.isArray(n.content)) {
+      return "Eine Nachricht hat keinen gültigen Inhalt.";
+    }
+  }
+  if (wert[0].role !== "user" || wert[wert.length - 1].role !== "user") {
+    return "Das Gespräch muss mit einer Frage beginnen und enden.";
+  }
+  return wert as Nachricht[];
+}
+
+export function erstelleHandler(env: Umgebung) {
+  const client = env.anthropicKey
+    ? new Anthropic({
+      apiKey: env.anthropicKey,
+      ...(env.anthropicBaseUrl ? { baseURL: env.anthropicBaseUrl } : {}),
+    })
+    : null;
+
+  return async function handler(req: Request): Promise<Response> {
+    const cors = corsKoepfe(req, env);
+
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
+    if (req.method !== "POST") {
+      return json(405, { fehler: "Nur POST." }, cors);
+    }
+
+    const token = (req.headers.get("authorization") ?? "")
+      .match(/^Bearer\s+(\S+)$/i)?.[1];
+    if (!token) {
+      return json(401, { fehler: "Bitte zuerst anmelden." }, cors);
+    }
+    const nutzer = await nutzerZumToken(token, env);
+    if (!nutzer) {
+      return json(401, {
+        fehler: "Die Anmeldung ist abgelaufen. Bitte neu anmelden.",
+      }, cors);
+    }
+    if (!env.erlaubteNutzer.includes(nutzer.id)) {
+      console.warn(`Nicht freigeschaltet: ${nutzer.id}`);
+      return json(403, {
+        fehler: "Dieses Konto ist für die App nicht freigeschaltet.",
+      }, cors);
+    }
+
+    if (!client) {
+      return json(500, {
+        fehler:
+          "Der API-Schlüssel fehlt noch. Er gehört als Secret ANTHROPIC_API_KEY in die Supabase-Funktion.",
+      }, cors);
+    }
+
+    const roh = await req.text();
+    if (roh.length > MAX_BYTES) {
+      return json(413, { fehler: "Das Gespräch ist zu lang." }, cors);
+    }
+    let eingabe: { nachrichten?: unknown; kontext?: Kontext };
+    try {
+      eingabe = JSON.parse(roh);
+    } catch {
+      return json(400, { fehler: "Die Anfrage ist kein gültiges JSON." }, cors);
+    }
+    const nachrichten = pruefeNachrichten(eingabe.nachrichten);
+    if (typeof nachrichten === "string") {
+      return json(400, { fehler: nachrichten }, cors);
+    }
+
+    const stream = client.beta.messages.stream({
+      model: MODELL,
+      max_tokens: 64000,
+      system: [{ type: "text", text: systemText(eingabe.kontext ?? {}) }],
+      // deno-lint-ignore no-explicit-any
+      messages: nachrichten as any,
+      thinking: {
+        type: "adaptive",
+        block_binding: { prefix_mismatch_behavior: "drop_block" },
+      },
+      output_config: { effort: "medium" },
+      // Merkt sich den Gesprächsanfang bei Anthropic für ein paar Minuten.
+      // Die nächste Frage im selben Gespräch kostet dann für den bekannten
+      // Teil nur einen Bruchteil.
+      cache_control: { type: "ephemeral" },
+      betas: BETAS,
+      fallbacks: "default",
+    });
+
+    const kodierer = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const sende = (ereignis: unknown) =>
+          controller.enqueue(
+            kodierer.encode(`data: ${JSON.stringify(ereignis)}\n\n`),
+          );
+        try {
+          for await (const ereignis of stream) {
+            if (ereignis.type === "content_block_start") {
+              if (ereignis.content_block.type === "thinking") {
+                sende({ t: "denkt" });
+              }
+            } else if (ereignis.type === "content_block_delta") {
+              if (ereignis.delta.type === "text_delta") {
+                sende({ t: "text", d: ereignis.delta.text });
+              }
+            } else if ((ereignis as { type: string }).type === "ping") {
+              // Hält die Verbindung offen, während Claude nachdenkt.
+              controller.enqueue(kodierer.encode(": ping\n\n"));
+            }
+          }
+          const nachricht = await stream.finalMessage();
+          sende({
+            t: "fertig",
+            inhalt: nachricht.content,
+            stop: nachricht.stop_reason,
+            modell: nachricht.model,
+            nutzung: nachricht.usage,
+          });
+        } catch (fehler) {
+          console.error(fehler);
+          sende({ t: "fehler", text: fehlerText(fehler) });
+        } finally {
+          controller.close();
+        }
+      },
+      cancel() {
+        // Die App hat auf „Stopp“ gedrückt oder ist weg: Claude nicht weiter
+        // schreiben lassen, das kostet sonst weiter.
+        stream.abort();
+      },
+    });
+
+    return new Response(body, {
+      headers: {
+        ...cors,
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
+  };
+}
+
+export function fehlerText(fehler: unknown): string {
+  if (fehler instanceof Anthropic.AuthenticationError) {
+    return "Der API-Schlüssel wird nicht angenommen. Bitte in Supabase prüfen.";
+  }
+  if (fehler instanceof Anthropic.RateLimitError) {
+    return "Gerade zu viele Anfragen. Bitte in einer Minute noch einmal.";
+  }
+  if (fehler instanceof Anthropic.BadRequestError) {
+    const text = String(fehler.message ?? "");
+    if (/credit balance/i.test(text)) {
+      return "Das API-Guthaben ist für diesen Monat aufgebraucht.";
+    }
+    return `Die Anfrage wurde abgelehnt: ${text}`;
+  }
+  if (fehler instanceof Anthropic.InternalServerError) {
+    return "Bei Anthropic hakt es gerade. Bitte gleich noch einmal versuchen.";
+  }
+  if (fehler instanceof Anthropic.APIError) {
+    return `Fehler von der API (${fehler.status}): ${fehler.message}`;
+  }
+  if (fehler instanceof Anthropic.APIConnectionError) {
+    return "Keine Verbindung zu Anthropic. Bitte gleich noch einmal versuchen.";
+  }
+  return "Unerwarteter Fehler auf dem Server.";
+}
