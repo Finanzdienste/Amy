@@ -979,6 +979,31 @@ svg {
   margin: 0.35rem 0;
 }
 
+.wahl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* width und min-width: Sonst macht der längste Eintrag das Feld so breit,
+ * dass es auf dem Handy über den Rand ragt. */
+.wahl select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+  font: inherit;
+  font-weight: 400;
+  font-size: 16px;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--linie-stark);
+  border-radius: 0.7rem;
+  background: var(--feld);
+  color: var(--text);
+}
+
 .einst textarea {
   width: 100%;
   margin-top: 0.5rem;

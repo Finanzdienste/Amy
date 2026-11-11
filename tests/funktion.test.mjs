@@ -105,6 +105,27 @@ test('ungültige Anfragen: 400', async () => {
   assert.equal(falscheRolle.status, 400);
 });
 
+test('Modell und Aufwand aus dem Gespräch: Fable 5.2 ohne Berater, Unbekanntes fällt auf die Vorgabe', async () => {
+  const mit = (kontext) => post(funktion.url, { token: `tok-${AMY}`, koerper: { kontext, nachrichten: [{ role: 'user', content: 'Hallo' }] } });
+  await ereignisse(await mit({ datum: 'x', modell: 'claude-fable-5-2', aufwand: 'max' }));
+  const fable = attrappe.anfragen.at(-1).koerper;
+  assert.equal(fable.model, 'claude-fable-5-2');
+  assert.deepEqual(fable.output_config, { effort: 'max' });
+  assert.equal(fable.tools, undefined);
+  assert.doesNotMatch(fable.system[0].text, /advisor/);
+  assert.equal(fable.fallbacks, 'default');
+
+  await ereignisse(await mit({ datum: 'x', modell: 'claude-gibt-es-nicht', aufwand: 'riesig' }));
+  const vorgabe = attrappe.anfragen.at(-1).koerper;
+  assert.equal(vorgabe.model, 'claude-opus-5-5');
+  assert.deepEqual(vorgabe.output_config, { effort: 'medium' });
+  assert.equal(vorgabe.tools[0].type, 'advisor_20260301');
+
+  // Ältere Gespräche ohne Wahl: genau wie bisher, derselbe Systemtext
+  await ereignisse(await mit({ datum: 'x' }));
+  assert.equal(attrappe.anfragen.at(-1).koerper.system[0].text, vorgabe.system[0].text);
+});
+
 test('eine Frage: was an die API geht und was zurückkommt', async () => {
   const antwort = await post(funktion.url, { token: `tok-${AMY}`, koerper: frageAn('Wie spät ist es?') });
   assert.equal(antwort.status, 200);

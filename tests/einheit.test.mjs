@@ -124,5 +124,7 @@ test('Kosten', () => {
   });
   assert.ok(Math.abs(mitBerater - 48) < 1e-9);
   assert.ok(Math.abs(kostenUSD([{ output_tokens: 1_000_000 }, { output_tokens: 1_000_000 }]) - 40) < 1e-9);
+  // Antwortet Fable selbst, gilt Fables Preis
+  assert.ok(Math.abs(kostenUSD({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'claude-fable-5-2') - 48) < 1e-9);
   assert.equal(alsDollar(0.004), 'unter 1 Cent');
 });
