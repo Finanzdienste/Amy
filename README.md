@@ -9,6 +9,16 @@ Console, nicht über ein Claude-Abo.
 
 ## Was die App kann
 
+- **Einführung:** Beim ersten Öffnen auf einem Gerät begrüßt die App und
+  zeigt auf dem Handy, wie man sie auf den Home-Bildschirm legt. Das kommt
+  absichtlich *vor* der Anmeldung: Auf dem iPhone hat die App auf dem
+  Home-Bildschirm einen eigenen Speicher, getrennt von Safari. Nach der ersten
+  Anmeldung eines Kontos folgen vier Seiten: was man mit Claude machen kann,
+  wie die App funktioniert, was man wissen sollte (Fehler, kein Internet,
+  Datenschutz), und „Über mich“ zum gleich Ausfüllen. Unter „Über mich &
+  Einstellungen“ lässt sie sich wieder aufrufen.
+- **Beispiele zum Antippen** im leeren Gespräch. Sie füllen nur das
+  Eingabefeld; abgeschickt wird erst mit ↑.
 - **Gespräche** wie im gewohnten Chat. Die Antwort erscheint, während sie
   entsteht, und lässt sich mit dem Stopp-Knopf anhalten.
 - **Mehrere Gespräche** in einer Liste. Auf dem Handy zieht man sie über
@@ -171,6 +181,7 @@ anpassen.
 |---|---|
 | `index.html`, `css/app.css` | Gerüst und Aussehen |
 | `js/app.js` | die Oberfläche |
+| `js/einfuehrung.js` | Einführung vor und nach der ersten Anmeldung |
 | `js/api.js` | Anfrage an die Funktion, Antwortstrom lesen |
 | `js/auth.js` | Anmeldung bei Supabase |
 | `js/store.js` | Speicher auf dem Gerät |

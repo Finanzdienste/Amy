@@ -9,7 +9,7 @@
  * VERSION hochzählen, wenn Dateien dazukommen oder wegfallen.
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `fragmal-${VERSION}`;
 
 const SHELL = [
@@ -20,6 +20,7 @@ const SHELL = [
   './js/api.js',
   './js/auth.js',
   './js/config.js',
+  './js/einfuehrung.js',
   './js/kosten.js',
   './js/markdown.js',
   './js/store.js',
