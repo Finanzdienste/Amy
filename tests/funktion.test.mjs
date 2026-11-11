@@ -182,6 +182,19 @@ test('pause_turn: die Funktion setzt fort und gibt eine Antwort zurück', async 
   assert.ok(Array.isArray(fertig.nutzung) && fertig.nutzung.length === 2);
 });
 
+test('Herzschlag: In einer stillen Phase kommen Lebenszeichen', async () => {
+  const mitHerz = await starteFunktion({ attrappe: attrappe.url, erlaubt: [AMY], urspruenge: [URSPRUNG], herzschlag: 200 });
+  try {
+    const antwort = await post(mitHerz.url, { token: `tok-${AMY}`, koerper: frageAn('Bitte still nachdenken') });
+    const roh = await antwort.text();
+    const herzschlaege = (roh.match(/^: ping$/gm) || []).length;
+    assert.ok(herzschlaege >= 4, `nur ${herzschlaege} Lebenszeichen in 1,5 s Stille`);
+    assert.equal(zerlegeSSE(roh).ereignisse.at(-1).t, 'fertig');
+  } finally {
+    await mitHerz.schliessen();
+  }
+});
+
 test('API-Schlüssel abgelehnt: Fehler im Strom', async () => {
   const falsch = await starteFunktion({ attrappe: attrappe.url, schluessel: 'falsch', erlaubt: [AMY], urspruenge: [URSPRUNG] });
   try {

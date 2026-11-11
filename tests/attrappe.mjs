@@ -13,6 +13,7 @@
  *   „xss“       die Antwort enthält HTML, das nicht ausgeführt werden darf
  *   „beispiel“  eine längere Antwort mit allem, was Markdown hergibt
  *   „berater“   Opus fragt erst den Berater (advisor), dann kommt der Text
+ *   „still“     1,5 s nichts vor dem Text (für den Herzschlag)
  *   „pause“     wie „berater“, aber die erste Antwort endet mit pause_turn;
  *               die Fortsetzung bringt den Rat und den Text
  */
@@ -166,6 +167,7 @@ export async function starteAttrappe() {
       const langsam = /langsam/i.test(frage);
       const berater = /berater|pause/i.test(frage);
       const pausiert = /pause/i.test(frage) && !fortsetzung;
+
       const stuecke = langsam ? Array.from({ length: 200 }, (_, i) => `Wort${i} `) : text.match(/.{1,12}/gs);
 
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'request-id': `req_${nr}` });
@@ -191,6 +193,8 @@ export async function starteAttrappe() {
         index++;
       }
       sende('ping', {});
+      // „still“: lange nichts, wie wenn Claude lange nachdenkt
+      if (/still/i.test(frage)) await warte(1500);
       // Der Berater: Opus ruft das Werkzeug advisor, der Rat kommt verschlüsselt.
       if (berater && !fortsetzung) {
         block({ type: 'server_tool_use', id: `srvtoolu_${nr}`, name: 'advisor', input: {} });
