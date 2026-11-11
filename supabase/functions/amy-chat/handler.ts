@@ -18,9 +18,10 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.7.0";
 
 export const MODELL = "claude-opus-5-5";
+export const BERATER = "claude-fable-5-2";
 
 /*
- * Die beiden Beta-Funktionen:
+ * Die Beta-Funktionen:
  *
  *   server-side-fallback   Lehnt Opus eine Anfrage aus Sicherheitsgründen ab,
  *                          beantwortet ein anderes Modell sie im selben Aufruf,
@@ -30,11 +31,33 @@ export const MODELL = "claude-opus-5-5";
  *                          Gespräch. Sollte sich davor doch etwas geändert
  *                          haben, fallen die betroffenen Denkschritte still
  *                          weg, statt dass die ganze Anfrage scheitert.
+ *
+ *   advisor-tool           Opus kann bei schwierigen Fragen Fable 5.2 um Rat
+ *                          fragen, so oft es das für nötig hält. Den Rat
+ *                          liefert die API verschlüsselt; er geht wie alles
+ *                          andere unverändert ins Gespräch zurück.
  */
 export const BETAS = [
   "server-side-fallback-2026-07-01",
   "thinking-binding-controls-2026-08-01",
+  "advisor-tool-2026-03-01",
 ];
+
+/*
+ * Das Werkzeug bleibt in jedem Gespräch Zeichen für Zeichen gleich: Eine
+ * Änderung (anderes Modell, anderes caching) gilt als Änderung am Gespräch
+ * und kostet die früheren Denkschritte. Keine Grenze für die Zahl der
+ * Rückfragen, so gewünscht; gedeckelt ist das Ganze über das Guthaben.
+ */
+export const WERKZEUGE = [{
+  type: "advisor_20260301",
+  name: "advisor",
+  model: BERATER,
+  caching: { type: "ephemeral", ttl: "5m" },
+}];
+
+/* Wie oft eine pausierte Antwort (pause_turn) höchstens fortgesetzt wird. */
+const MAX_FORTSETZUNGEN = 5;
 
 /* Obergrenze für eine Anfrage. Ein langes Gespräch mit viel Text liegt weit
  * darunter; das hier fängt nur Unsinn ab. */
@@ -75,6 +98,11 @@ export function systemText(kontext: Kontext): string {
       "Links, Code und einfache Tabellen.",
     "In dieser App hast du keinen Zugang zum Internet. Wenn eine Frage " +
       "von Ereignissen nach deinem Wissensstand abhängen könnte, sag das.",
+    "Du hast einen Berater, das Werkzeug advisor, ein noch stärkeres " +
+      "Modell. Frag ihn, wenn gründliches Nachdenken die Antwort spürbar " +
+      "besser macht: knifflige Abwägungen und Entscheidungen, Rechnungen, " +
+      "Pläne mit vielen Teilen, Fakten, bei denen du dir unsicher bist. " +
+      "Für Plaudereien und einfache Fragen brauchst du ihn nicht.",
   ];
   if (kontext.datum) {
     teile.push(`Das Gespräch hat am ${kontext.datum} begonnen.`);
@@ -207,66 +235,97 @@ export function erstelleHandler(env: Umgebung) {
       return json(400, { fehler: nachrichten }, cors);
     }
 
-    const stream = client.beta.messages.stream({
-      model: MODELL,
-      max_tokens: 64000,
-      system: [{ type: "text", text: systemText(eingabe.kontext ?? {}) }],
-      // deno-lint-ignore no-explicit-any
-      messages: nachrichten as any,
-      thinking: {
-        type: "adaptive",
-        block_binding: { prefix_mismatch_behavior: "drop_block" },
-      },
-      output_config: { effort: "medium" },
-      // Merkt sich den Gesprächsanfang bei Anthropic für ein paar Minuten.
-      // Die nächste Frage im selben Gespräch kostet dann für den bekannten
-      // Teil nur einen Bruchteil.
-      cache_control: { type: "ephemeral" },
-      betas: BETAS,
-      fallbacks: "default",
-    });
+    const system = [{ type: "text", text: systemText(eingabe.kontext ?? {}) }];
+    const anfrage = (verlauf: unknown[]) =>
+      client.beta.messages.stream({
+        model: MODELL,
+        max_tokens: 64000,
+        // deno-lint-ignore no-explicit-any
+        system: system as any,
+        // deno-lint-ignore no-explicit-any
+        messages: verlauf as any,
+        // deno-lint-ignore no-explicit-any
+        tools: WERKZEUGE as any,
+        thinking: {
+          type: "adaptive",
+          block_binding: { prefix_mismatch_behavior: "drop_block" },
+        },
+        output_config: { effort: "medium" },
+        // Merkt sich den Gesprächsanfang bei Anthropic für ein paar Minuten.
+        // Die nächste Frage im selben Gespräch kostet dann für den bekannten
+        // Teil nur einen Bruchteil.
+        cache_control: { type: "ephemeral" },
+        betas: BETAS,
+        fallbacks: "default",
+      });
 
+    let stream: ReturnType<typeof anfrage> | null = null;
+    let abgebrochen = false;
     const kodierer = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const sende = (ereignis: unknown) =>
+        // Nach einem Abbruch ist der Strom zu; dann still nichts mehr senden.
+        const sende = (ereignis: unknown) => {
+          if (abgebrochen) return;
           controller.enqueue(
             kodierer.encode(`data: ${JSON.stringify(ereignis)}\n\n`),
           );
+        };
         try {
-          for await (const ereignis of stream) {
-            if (ereignis.type === "content_block_start") {
-              if (ereignis.content_block.type === "thinking") {
-                sende({ t: "denkt" });
+          // Mit Werkzeugen auf dem Server kann eine Antwort pausieren
+          // (pause_turn). Dann geht das bisher Geschriebene als Antwort mit,
+          // und die API macht dort weiter. Die Teile werden am Ende zu einer
+          // Antwort zusammengesetzt; aufeinanderfolgende Antworten fasst die
+          // API ohnehin zu einer zusammen.
+          const inhalt: unknown[] = [];
+          const nutzungen: unknown[] = [];
+          let nachricht;
+          for (let runde = 0; ; runde++) {
+            const verlauf = inhalt.length
+              ? [...nachrichten, { role: "assistant", content: inhalt }]
+              : nachrichten;
+            stream = anfrage(verlauf);
+            if (abgebrochen) stream.abort();
+            for await (const ereignis of stream) {
+              if (ereignis.type === "content_block_start") {
+                const block = ereignis.content_block as { type: string; name?: string };
+                if (block.type === "thinking") sende({ t: "denkt" });
+                if (block.type === "server_tool_use" && block.name === "advisor") {
+                  sende({ t: "berater" });
+                }
+              } else if (ereignis.type === "content_block_delta") {
+                if (ereignis.delta.type === "text_delta") {
+                  sende({ t: "text", d: ereignis.delta.text });
+                }
+              } else if ((ereignis as { type: string }).type === "ping" && !abgebrochen) {
+                // Hält die Verbindung offen, während Claude nachdenkt.
+                controller.enqueue(kodierer.encode(": ping\n\n"));
               }
-            } else if (ereignis.type === "content_block_delta") {
-              if (ereignis.delta.type === "text_delta") {
-                sende({ t: "text", d: ereignis.delta.text });
-              }
-            } else if ((ereignis as { type: string }).type === "ping") {
-              // Hält die Verbindung offen, während Claude nachdenkt.
-              controller.enqueue(kodierer.encode(": ping\n\n"));
             }
+            nachricht = await stream.finalMessage();
+            inhalt.push(...nachricht.content);
+            nutzungen.push(nachricht.usage);
+            if (nachricht.stop_reason !== "pause_turn" || runde >= MAX_FORTSETZUNGEN) break;
           }
-          const nachricht = await stream.finalMessage();
           sende({
             t: "fertig",
-            inhalt: nachricht.content,
+            inhalt,
             stop: nachricht.stop_reason,
             modell: nachricht.model,
-            nutzung: nachricht.usage,
+            nutzung: nutzungen.length === 1 ? nutzungen[0] : nutzungen,
           });
         } catch (fehler) {
-          console.error(fehler);
+          if (!abgebrochen) console.error(fehler);
           sende({ t: "fehler", text: fehlerText(fehler) });
         } finally {
-          controller.close();
+          if (!abgebrochen) controller.close();
         }
       },
       cancel() {
         // Die App hat auf „Stopp“ gedrückt oder ist weg: Claude nicht weiter
         // schreiben lassen, das kostet sonst weiter.
-        stream.abort();
+        abgebrochen = true;
+        stream?.abort();
       },
     });
 

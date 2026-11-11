@@ -368,6 +368,30 @@ test('Einführung: Begrüßung, Home-Bildschirm, erste Anmeldung, „Über mich�
   await kontext.close();
 });
 
+test('Berater: der verschlüsselte Rat geht in der nächsten Frage unverändert mit', async () => {
+  const { seite, kontext, fehler } = await neueSeite();
+  await melde(seite, 'ich@test.de', 'geheim-ich');
+  await frage(seite, 'Frag den Berater');
+  await warteAufAntwort(seite);
+  const erste = attrappe.anfragen.at(-1);
+  await frage(seite, 'Danke');
+  await warteAufAntwort(seite);
+  const zweite = attrappe.anfragen.at(-1).koerper;
+  const antwort = zweite.messages[1];
+  assert.equal(antwort.role, 'assistant');
+  assert.deepEqual(antwort.content.map((b) => b.type), ['thinking', 'server_tool_use', 'advisor_tool_result', 'text']);
+  assert.equal(antwort.content[2].content.encrypted_content, `enc-${erste.nr}`);
+  assert.deepEqual(zweite.tools, erste.koerper.tools);
+  assert.equal(zweite.system[0].text, erste.koerper.system[0].text);
+  // Die Kosten rechnen Fable mit. Erste Antwort: Opus 1000·4 + 2000·0,2 + 500·20
+  // = 14.400 µ$, Fable 3000·8 + 800·40 = 56.000 µ$; zweite nur Opus 14.400 µ$.
+  // Zusammen 84.800 µ$ ≈ 0,08 $ (ohne Fable wären es 0,03 $).
+  await seite.click('.leiste-fuss [data-act=einstellungen]');
+  assert.match(await seite.locator('#einstellungen').innerText(), /auf diesem Gerät: 0,08[\s ]\$/);
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
 test('Einführung am Rechner: ohne Home-Bildschirm-Seite', async () => {
   const { seite, kontext, fehler } = await neueSeite({ begruessen: true });
   await seite.waitForSelector('.einf');

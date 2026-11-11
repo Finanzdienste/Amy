@@ -129,7 +129,14 @@ test('eine Frage: was an die API geht und was zurückkommt', async () => {
   const betas = gesendet.koepfe['anthropic-beta'];
   assert.match(betas, /server-side-fallback-2026-07-01/);
   assert.match(betas, /thinking-binding-controls-2026-08-01/);
+  assert.match(betas, /advisor-tool-2026-03-01/);
   const k = gesendet.koerper;
+  assert.deepEqual(k.tools, [{
+    type: 'advisor_20260301', name: 'advisor', model: 'claude-fable-5-2',
+    caching: { type: 'ephemeral', ttl: '5m' },
+  }]);
+  assert.equal(k.tool_choice, undefined);
+  assert.match(k.system[0].text, /Werkzeug advisor/);
   assert.equal(k.model, 'claude-opus-5-5');
   assert.equal(k.stream, true);
   assert.equal(k.max_tokens, 64000);
@@ -141,6 +148,38 @@ test('eine Frage: was an die API geht und was zurückkommt', async () => {
   assert.match(k.system[0].text, /Das Gespräch hat am Dienstag, 10\. November 2026 begonnen\./);
   assert.match(k.system[0].text, /<ueber_mich>\nIch heiße Amy\.\n<\/ueber_mich>/);
   assert.deepEqual(k.messages, [{ role: 'user', content: 'Wie spät ist es?' }]);
+});
+
+test('Berater: Hinweis im Strom, Rat landet unverändert in der Antwort', async () => {
+  const antwort = await post(funktion.url, { token: `tok-${AMY}`, koerper: frageAn('Frag mal den Berater') });
+  const liste = await ereignisse(antwort);
+  assert.ok(liste.some((e) => e.t === 'berater'));
+  const fertig = liste.at(-1);
+  assert.equal(fertig.t, 'fertig');
+  assert.deepEqual(fertig.inhalt.map((b) => b.type), ['thinking', 'server_tool_use', 'advisor_tool_result', 'text']);
+  assert.deepEqual(fertig.inhalt[2].content, { type: 'advisor_redacted_result', encrypted_content: fertig.inhalt[2].content.encrypted_content, stop_reason: 'end_turn' });
+  assert.equal(fertig.nutzung.iterations.at(-1).type, 'advisor_message');
+});
+
+test('pause_turn: die Funktion setzt fort und gibt eine Antwort zurück', async () => {
+  const vorher = attrappe.anfragen.length;
+  const antwort = await post(funktion.url, { token: `tok-${AMY}`, koerper: frageAn('Mit pause bitte') });
+  const liste = await ereignisse(antwort);
+  const fertig = liste.at(-1);
+  assert.equal(fertig.t, 'fertig');
+  assert.equal(fertig.stop, 'end_turn');
+  assert.equal(attrappe.anfragen.length, vorher + 2);
+  // Die zweite Anfrage hängt die angefangene Antwort unverändert an
+  const zweite = attrappe.anfragen.at(-1).koerper;
+  assert.equal(zweite.messages.length, 2);
+  assert.equal(zweite.messages[1].role, 'assistant');
+  assert.deepEqual(zweite.messages[1].content.map((b) => b.type), ['thinking', 'server_tool_use']);
+  assert.deepEqual(zweite.system, attrappe.anfragen.at(-2).koerper.system);
+  assert.deepEqual(zweite.tools, attrappe.anfragen.at(-2).koerper.tools);
+  // Zurück an die App geht alles in einem Stück, zwei Nutzungen
+  assert.deepEqual(fertig.inhalt.map((b) => b.type), ['thinking', 'server_tool_use', 'advisor_tool_result', 'text']);
+  assert.equal(fertig.inhalt[2].tool_use_id, fertig.inhalt[1].id);
+  assert.ok(Array.isArray(fertig.nutzung) && fertig.nutzung.length === 2);
 });
 
 test('API-Schlüssel abgelehnt: Fehler im Strom', async () => {
