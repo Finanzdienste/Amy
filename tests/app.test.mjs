@@ -25,6 +25,7 @@ before(async () => {
   statisch = await starteStatisch({ konfig });
   funktion = await starteFunktion({
     attrappe: attrappe.url,
+    admin: 'admin-test',
     erlaubt: [NUTZER['amy@test.de'].id, NUTZER['ich@test.de'].id],
     urspruenge: [statisch.url],
   });
@@ -126,7 +127,7 @@ test('der ganze Weg mit einem freigeschalteten Konto', async () => {
   await seite.fill('#ueber-mich', 'Ich heiße Amy und mag kurze Antworten.');
   await seite.click('button:has-text("Speichern")');
   await seite.waitForSelector('.gespeichert:has-text("Gespeichert")');
-  assert.match(await seite.locator('#einstellungen').innerText(), /Diesen Monat auf diesem Gerät: unter 1 Cent|Diesen Monat auf diesem Gerät: 0,01/);
+  assert.match(await seite.locator('#einstellungen').innerText(), /in dieser App auf diesem Gerät: unter 1 Cent|in dieser App auf diesem Gerät: 0,01/);
   await seite.click('#einstellungen button[value=zu]');
 
   // Zweite Frage im selben Gespräch: alles davor geht unverändert mit,
@@ -518,6 +519,19 @@ test('Neuigkeit: einmal nach dem Öffnen, „Jetzt einstellen“ führt zur Wahl
   await warteAufAntwort(seite);
   assert.equal(attrappe.anfragen.at(-1).koerper.model, 'claude-sonnet-5-5');
 
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
+test('API-Guthaben: Anzeige in Prozent in der Leiste und in den Einstellungen', async () => {
+  const { seite, kontext, fehler } = await neueSeite();
+  await melde(seite, 'amy@test.de', 'geheim-amy');
+  await seite.waitForSelector('#guthaben-leiste:has-text("20 % verbraucht")');
+  assert.equal(await seite.getAttribute('#guthaben-leiste .guthaben-balken', 'aria-valuenow'), '20');
+  await seite.click('.leiste-fuss [data-act=einstellungen]');
+  await seite.waitForSelector('#guthaben-einst:has-text("20 %")');
+  const text = await seite.textContent('#guthaben-einst');
+  assert.match(text, /20,00\s\$ von 100,00\s\$/);
   assert.deepEqual(fehler, []);
   await kontext.close();
 });

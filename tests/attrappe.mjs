@@ -75,6 +75,7 @@ function letzteFrage(nachrichten) {
 
 export async function starteAttrappe() {
   const anfragen = [];
+  const kostenAbfragen = [];
   let zaehler = 0;
 
   const server = http.createServer(async (req, res) => {
@@ -134,6 +135,24 @@ export async function starteAttrappe() {
         return;
       }
       json(200, { id, email: nachId[id].email, role: 'authenticated' });
+      return;
+    }
+
+    // Kostenbericht der Admin-API: zwei Tage, zusammen 20 $ (in Cent)
+    if (url.pathname === '/v1/organizations/cost_report') {
+      kostenAbfragen.push(Object.fromEntries(url.searchParams));
+      if (req.headers['x-api-key'] !== 'admin-test') {
+        json(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+        return;
+      }
+      json(200, {
+        data: [
+          { starting_at: '2026-11-01T00:00:00Z', ending_at: '2026-11-02T00:00:00Z', results: [{ currency: 'USD', amount: '1234.5' }] },
+          { starting_at: '2026-11-02T00:00:00Z', ending_at: '2026-11-03T00:00:00Z', results: [{ currency: 'USD', amount: '765.5' }] },
+        ],
+        has_more: false,
+        next_page: null,
+      });
       return;
     }
 
@@ -244,6 +263,7 @@ export async function starteAttrappe() {
   return {
     url: `http://127.0.0.1:${port}`,
     anfragen,
+    kostenAbfragen,
     schliessen: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
   };
 }

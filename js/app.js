@@ -9,7 +9,7 @@
  */
 
 import { anmelden, abmelden, gueltigesToken, sitzung } from './auth.js';
-import { Abbruch, frage, textAus } from './api.js';
+import { Abbruch, frage, textAus, verbrauchHolen } from './api.js';
 import { markdownZuHtml, maskiere } from './markdown.js';
 import { alsDollar, kostenUSD } from './kosten.js';
 import * as speicher from './store.js';
@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '6';
+export const FASSUNG = '7';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -215,6 +215,7 @@ async function zeigeApp() {
         </div>
         <nav class="liste" id="liste"></nav>
         <div class="leiste-fuss">
+          <div id="guthaben-leiste"></div>
           <button type="button" class="knopf-leise" data-act="einstellungen">Über mich &amp; Einstellungen</button>
         </div>
       </aside>
@@ -284,6 +285,7 @@ async function zeigeApp() {
 
   zeichneListe();
   zeichneGespraech({ ansEnde: true });
+  ladeGuthaben({ sofort: true });
   if (!eingefuehrt) fuehreEin();
   else if (neuigkeit !== NEUIGKEIT.kennung) zeigeNeuigkeit();
   else if (!grob) feld.focus();
@@ -552,6 +554,7 @@ async function antwortHolen(g) {
         g.nachrichten.push({ role: 'assistant', content: fertig.inhalt });
       }
       g.verbrauch.push({ zeit: Date.now(), usd: kostenUSD(fertig.nutzung, fertig.modell) });
+      ladeGuthaben();
       if (fertig.stop === 'max_tokens') {
         zustand.hinweis = { id: g.id, text: 'Die Antwort war zu lang und wurde abgeschnitten. Schreib „weiter“, dann setzt Claude fort.' };
       } else if (fertig.stop === 'refusal') {
@@ -606,6 +609,52 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- Einstellungen ---------- */
 
+/* ---------- API-Guthaben ---------- */
+
+/* Holt den Stand höchstens alle zwei Minuten (die Funktion selbst fragt
+ * Anthropic höchstens alle fünf). */
+async function ladeGuthaben({ sofort = false } = {}) {
+  if (!sofort && zustand.guthabenZeit && Date.now() - zustand.guthabenZeit < 120_000) return;
+  zustand.guthabenZeit = Date.now();
+  let token;
+  try {
+    token = await gueltigesToken();
+  } catch {
+    return;
+  }
+  if (!token) return;
+  zustand.guthaben = await verbrauchHolen({ token });
+  zeichneGuthaben();
+}
+
+function guthabenHtml(g, { ausfuehrlich = false } = {}) {
+  if (!g) return ausfuehrlich ? '<p class="klein">Wird geladen …</p>' : '';
+  if (!g.verfuegbar) {
+    return ausfuehrlich ? '<p class="klein">Gerade nicht abrufbar.</p>' : '';
+  }
+  const p = Math.max(0, g.prozent);
+  const stufe = p >= 90 ? ' knapp' : p >= 70 ? ' warn' : '';
+  const prozent = p.toLocaleString('de-DE', { maximumFractionDigits: p < 10 ? 1 : 0 });
+  const balken = `<div class="guthaben-balken${stufe}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+      aria-valuenow="${Math.min(100, Math.round(p))}" aria-label="API-Guthaben verbraucht"><span style="width:${Math.min(100, p)}%"></span></div>`;
+  if (!ausfuehrlich) {
+    return `<div class="guthaben"><div class="guthaben-zeile"><span>API-Guthaben</span><strong>${prozent} % verbraucht</strong></div>${balken}</div>`;
+  }
+  const seit = new Date(`${g.seit}T00:00:00Z`).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
+  return `<div class="guthaben">${balken}
+    <p><strong>${prozent} %</strong> verbraucht: ${alsDollar(g.usd)} von ${alsDollar(g.guthaben)} seit ${seit}.</p>
+    <p class="klein">Alles zusammen, was über denselben API-Zugang läuft, auch andere Apps.
+      Der Stand hinkt ein paar Minuten hinterher. Ist das Guthaben aufgebraucht, geht es
+      im nächsten Monat weiter.</p></div>`;
+}
+
+function zeichneGuthaben() {
+  const leiste = $('#guthaben-leiste');
+  if (leiste) leiste.innerHTML = guthabenHtml(zustand.guthaben);
+  const einst = $('#guthaben-einst');
+  if (einst) einst.innerHTML = guthabenHtml(zustand.guthaben, { ausfuehrlich: true });
+}
+
 function verbrauchDiesenMonat() {
   const jetzt = new Date();
   const anfang = new Date(jetzt.getFullYear(), jetzt.getMonth(), 1).getTime();
@@ -617,6 +666,7 @@ function verbrauchDiesenMonat() {
 }
 
 function oeffneEinstellungen() {
+  ladeGuthaben();
   const dialog = $('#einstellungen');
   const s = sitzung();
   dialog.innerHTML = `
@@ -650,8 +700,9 @@ function oeffneEinstellungen() {
       </label>
       <p class="klein" id="wahl-aufwand-text">${AUFWAENDE[zustand.aufwand].text}</p>
 
-      <h3>Verbrauch</h3>
-      <p>Diesen Monat auf diesem Gerät: <strong>${alsDollar(verbrauchDiesenMonat())}</strong>
+      <h3>API-Guthaben diesen Monat</h3>
+      <div id="guthaben-einst">${guthabenHtml(zustand.guthaben, { ausfuehrlich: true })}</div>
+      <p>Davon in dieser App auf diesem Gerät: <strong>${alsDollar(verbrauchDiesenMonat())}</strong>
         <span class="klein">(geschätzt)</span></p>
 
       <h3>Konto</h3>

@@ -68,6 +68,12 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 export type Umgebung = {
   anthropicKey?: string;
+  /** Admin-Schlüssel der Console, nur zum Lesen des Kostenberichts. */
+  adminKey?: string;
+  /** Monatliches API-Guthaben in US-Dollar (Max: 100, Ultra: 200). */
+  guthabenUsd?: number;
+  /** Tag im Monat, an dem das Guthaben neu beginnt (1–28). */
+  abrechnungTag?: number;
   /** Nur für die Tests: lenkt die Anfragen an eine simulierte API. */
   anthropicBaseUrl?: string;
   supabaseUrl: string;
@@ -152,6 +158,72 @@ export function systemText(kontext: Kontext, { berater = true } = {}): string {
     );
   }
   return teile.join("\n\n");
+}
+
+/*
+ * Wie viel vom API-Guthaben schon weg ist, für die Anzeige in der App. Die
+ * Zahl kommt aus Anthropics Kostenbericht (Admin-API) und umfasst alles, was
+ * über den Schlüssel der Organisation läuft, auch die anderen Apps. Der
+ * Bericht hinkt ein paar Minuten hinterher; die Funktion fragt ihn höchstens
+ * alle fünf Minuten ab.
+ */
+export function abrechnungsBeginn(jetzt: Date, tag = 1): Date {
+  const t = Math.min(Math.max(Math.trunc(tag) || 1, 1), 28);
+  const j = jetzt.getUTCFullYear();
+  const m = jetzt.getUTCMonth();
+  return jetzt.getUTCDate() >= t
+    ? new Date(Date.UTC(j, m, t))
+    : new Date(Date.UTC(j, m - 1, t));
+}
+
+let verbrauchZwischen: { zeit: number; daten: unknown } | null = null;
+
+async function verbrauch(env: Umgebung): Promise<unknown> {
+  if (!env.adminKey) return { verfuegbar: false };
+  if (verbrauchZwischen && Date.now() - verbrauchZwischen.zeit < 5 * 60_000) {
+    return verbrauchZwischen.daten;
+  }
+  const jetzt = new Date();
+  const seit = abrechnungsBeginn(jetzt, env.abrechnungTag);
+  const basis = env.anthropicBaseUrl ?? "https://api.anthropic.com";
+  let cent = 0;
+  let seite = "";
+  for (let i = 0; i < 5; i++) {
+    const adresse = new URL("/v1/organizations/cost_report", basis);
+    adresse.searchParams.set("starting_at", seit.toISOString().replace(/\.\d{3}Z$/, "Z"));
+    adresse.searchParams.set("ending_at", jetzt.toISOString().replace(/\.\d{3}Z$/, "Z"));
+    adresse.searchParams.set("bucket_width", "1d");
+    adresse.searchParams.set("limit", "31");
+    if (seite) adresse.searchParams.set("page", seite);
+    const antwort = await fetch(adresse, {
+      headers: {
+        "x-api-key": env.adminKey,
+        "anthropic-version": "2026-10-21",
+        "user-agent": "FragMal/1 (private Chat-App)",
+      },
+    });
+    if (!antwort.ok) {
+      console.error(`Kostenbericht: HTTP ${antwort.status}`);
+      return { verfuegbar: false, fehler: antwort.status };
+    }
+    const bericht = await antwort.json();
+    for (const fach of bericht.data ?? []) {
+      for (const posten of fach.results ?? []) cent += Number(posten.amount) || 0;
+    }
+    if (!bericht.has_more || !bericht.next_page) break;
+    seite = bericht.next_page;
+  }
+  const usd = cent / 100;
+  const guthaben = env.guthabenUsd && env.guthabenUsd > 0 ? env.guthabenUsd : 100;
+  const daten = {
+    verfuegbar: true,
+    usd,
+    guthaben,
+    prozent: Math.round((usd / guthaben) * 1000) / 10,
+    seit: seit.toISOString().slice(0, 10),
+  };
+  verbrauchZwischen = { zeit: Date.now(), daten };
+  return daten;
 }
 
 function corsKoepfe(req: Request, env: Umgebung): Record<string, string> {
@@ -250,22 +322,31 @@ export function erstelleHandler(env: Umgebung) {
       }, cors);
     }
 
+    const roh = await req.text();
+    if (roh.length > MAX_BYTES) {
+      return json(413, { fehler: "Das Gespräch ist zu lang." }, cors);
+    }
+    let eingabe: { art?: string; nachrichten?: unknown; kontext?: Kontext };
+    try {
+      eingabe = JSON.parse(roh);
+    } catch {
+      return json(400, { fehler: "Die Anfrage ist kein gültiges JSON." }, cors);
+    }
+
+    if (eingabe.art === "verbrauch") {
+      try {
+        return json(200, await verbrauch(env), cors);
+      } catch (fehler) {
+        console.error(fehler);
+        return json(200, { verfuegbar: false }, cors);
+      }
+    }
+
     if (!client) {
       return json(500, {
         fehler:
           "Der API-Schlüssel fehlt noch. Er gehört als Secret ANTHROPIC_API_KEY in die Supabase-Funktion.",
       }, cors);
-    }
-
-    const roh = await req.text();
-    if (roh.length > MAX_BYTES) {
-      return json(413, { fehler: "Das Gespräch ist zu lang." }, cors);
-    }
-    let eingabe: { nachrichten?: unknown; kontext?: Kontext };
-    try {
-      eingabe = JSON.parse(roh);
-    } catch {
-      return json(400, { fehler: "Die Anfrage ist kein gültiges JSON." }, cors);
     }
     const nachrichten = pruefeNachrichten(eingabe.nachrichten);
     if (typeof nachrichten === "string") {
