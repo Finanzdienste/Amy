@@ -244,6 +244,40 @@ test('API-Schlüssel abgelehnt: Fehler im Strom', async () => {
   }
 });
 
+test('Verbrauch: ohne Admin-Schlüssel keine Zahl, mit ihm der Kostenbericht in Prozent', async () => {
+  const ohne = await post(funktion.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } });
+  assert.equal(ohne.status, 200);
+  assert.deepEqual(await ohne.json(), { verfuegbar: false });
+
+  const fremd = await post(funktion.url, { token: 'tok-33333333-3333-4333-8333-333333333333', koerper: { art: 'verbrauch' } });
+  assert.equal(fremd.status, 403);
+
+  const mit = await starteFunktion({ attrappe: attrappe.url, admin: 'admin-test', erlaubt: [AMY], urspruenge: [URSPRUNG] });
+  try {
+    const vorher = attrappe.anfragen.length;
+    const antwort = await post(mit.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } });
+    const daten = await antwort.json();
+    assert.equal(daten.verfuegbar, true);
+    assert.equal(daten.usd, 20);
+    assert.equal(daten.guthaben, 100);
+    assert.equal(daten.prozent, 20);
+    const jetzt = new Date();
+    const erster = new Date(Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    assert.equal(daten.seit, erster);
+    const abfrage = attrappe.kostenAbfragen.at(-1);
+    assert.equal(abfrage.starting_at, `${erster}T00:00:00Z`);
+    assert.equal(abfrage.bucket_width, '1d');
+    // Fragt keine Nachricht an
+    assert.equal(attrappe.anfragen.length, vorher);
+    // Zweimal kurz hintereinander: Anthropic wird nur einmal gefragt
+    const zahl = attrappe.kostenAbfragen.length;
+    await (await post(mit.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } })).json();
+    assert.equal(attrappe.kostenAbfragen.length, zahl);
+  } finally {
+    await mit.schliessen();
+  }
+});
+
 test('Abbruch durch die App bricht auch die Anfrage an die API ab', async () => {
   const ctrl = new AbortController();
   const antwort = await fetch(funktion.url, {

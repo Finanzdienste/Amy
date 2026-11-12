@@ -1050,3 +1050,49 @@ svg {
 .neuigkeit .reihe {
   margin-top: 1rem;
 }
+
+/* ---------- API-Guthaben ---------- */
+
+.guthaben {
+  margin-bottom: 0.6rem;
+}
+
+.guthaben-zeile {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-leise);
+  margin-bottom: 0.3rem;
+}
+
+.guthaben-zeile strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.guthaben-balken {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--linie);
+  overflow: hidden;
+}
+
+.guthaben-balken span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--akzent);
+}
+
+.guthaben-balken.warn span {
+  background: #c8902a;
+}
+
+.guthaben-balken.knapp span {
+  background: var(--fehler);
+}
+
+.einst .guthaben p {
+  margin: 0.5rem 0 0;
+}

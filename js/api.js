@@ -98,6 +98,27 @@ export async function frage({ token, kontext, nachrichten, signal, beiEreignis }
   return fertig;
 }
 
+/* Wie viel vom monatlichen API-Guthaben schon verbraucht ist (alle Apps
+ * zusammen, aus Anthropics Kostenbericht). { verfuegbar: false }, wenn die
+ * Funktion keinen Admin-Schlüssel hat oder etwas hakt. */
+export async function verbrauchHolen({ token }) {
+  try {
+    const antwort = await fetch(KONFIG.funktionUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: KONFIG.publishableKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ art: 'verbrauch' }),
+    });
+    if (!antwort.ok) return { verfuegbar: false };
+    return await antwort.json();
+  } catch {
+    return { verfuegbar: false };
+  }
+}
+
 /* Der sichtbare Text einer gespeicherten Antwort. Denkschritte und andere
  * Blöcke bleiben unsichtbar, gehen aber beim nächsten Mal unverändert mit. */
 export function textAus(inhalt) {
