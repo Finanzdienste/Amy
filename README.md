@@ -119,9 +119,14 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   ändern (sonst verliert Claude frühere Denkschritte). Während Opus fragt,
   zeigt die App „fragt Fable um Rat“. Pausiert eine Antwort dabei
   (`pause_turn`), setzt die Funktion sie selbst fort.
-- **Denktiefe.** `effort: "medium"`, die Voreinstellung von Opus 5.5. Für
-  ein Gespräch ist das meist genau richtig. Wer gründlichere Antworten will
-  und längere Wartezeiten in Kauf nimmt, stellt in `handler.ts` auf `"high"`.
+- **Modell und Aufwand wählbar.** Unter „Über mich & Einstellungen“: Opus 5.5
+  mit Advisor (Vorgabe), Opus 5.5 ohne Advisor, Sonnet 5.5 mit Advisor, Haiku 5.5
+  oder Fable 5.2; Aufwand von „Niedrig“ bis „Maximal“ (Vorgabe „Mittel“). Die
+  Wahl wird mit dem Gespräch festgehalten wie „Über mich“ und gilt ab dem
+  nächsten neuen Gespräch. Die Funktion prüft beides gegen eine feste Liste.
+- **Neuigkeiten.** Nach einer Neuerung zeigt die App einmal je Konto und Gerät
+  ein kleines Fenster (`NEUIGKEIT` in `js/app.js`); wer gerade die Einführung
+  gesehen hat, bekommt es nicht.
 
 ## Was es kostet
 
@@ -135,6 +140,9 @@ Fragt Opus den Berater, kommt Fable 5.2 dazu: 8 $ pro Million Eingabe-Tokens
 und 40 $ pro Million Ausgabe-Tokens, also doppelt so viel wie Opus. Bezahlt
 wird das nur bei Fragen, bei denen Opus wirklich fragt. Die Schätzung unter
 „Verbrauch“ rechnet Fables Anteil mit Fables Preisen.
+
+Sonnet 5.5 kostet die Hälfte von Opus (2 $ / 10 $), Haiku 5.5 fast nichts
+(0,10 $ / 0,50 $). Fable 5.2 selbst kostet doppelt so viel wie Opus.
 
 Das monatliche API-Guthaben aus dem Abo verfällt am Ende jedes
 Abrechnungszeitraums. Ist es aufgebraucht, sagt die App das, und es geht

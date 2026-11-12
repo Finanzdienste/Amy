@@ -1039,3 +1039,14 @@ svg {
   padding-top: 0.75rem;
   border-top: 1px solid var(--linie);
 }
+
+/* ---------- Neuigkeit ---------- */
+
+.neuigkeit h2 {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 1.2rem;
+}
+
+.neuigkeit .reihe {
+  margin-top: 1rem;
+}

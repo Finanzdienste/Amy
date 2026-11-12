@@ -121,6 +121,22 @@ test('Modell und Aufwand aus dem Gespräch: Fable 5.2 ohne Berater, Unbekanntes 
   assert.deepEqual(vorgabe.output_config, { effort: 'medium' });
   assert.equal(vorgabe.tools[0].type, 'advisor_20260301');
 
+  // Opus allein, Sonnet mit Berater, Haiku ohne
+  await ereignisse(await mit({ datum: 'x', modell: 'claude-opus-5-5-allein', aufwand: 'high' }));
+  const allein = attrappe.anfragen.at(-1).koerper;
+  assert.equal(allein.model, 'claude-opus-5-5');
+  assert.equal(allein.tools, undefined);
+  assert.doesNotMatch(allein.system[0].text, /advisor/);
+  await ereignisse(await mit({ datum: 'x', modell: 'claude-sonnet-5-5', aufwand: 'low' }));
+  const sonnet = attrappe.anfragen.at(-1).koerper;
+  assert.equal(sonnet.model, 'claude-sonnet-5-5');
+  assert.equal(sonnet.tools[0].model, 'claude-fable-5-2');
+  assert.deepEqual(sonnet.output_config, { effort: 'low' });
+  await ereignisse(await mit({ datum: 'x', modell: 'claude-haiku-5-5' }));
+  const haiku = attrappe.anfragen.at(-1).koerper;
+  assert.equal(haiku.model, 'claude-haiku-5-5');
+  assert.equal(haiku.tools, undefined);
+
   // Ältere Gespräche ohne Wahl: genau wie bisher, derselbe Systemtext
   await ereignisse(await mit({ datum: 'x' }));
   assert.equal(attrappe.anfragen.at(-1).koerper.system[0].text, vorgabe.system[0].text);

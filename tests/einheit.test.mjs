@@ -126,5 +126,9 @@ test('Kosten', () => {
   assert.ok(Math.abs(kostenUSD([{ output_tokens: 1_000_000 }, { output_tokens: 1_000_000 }]) - 40) < 1e-9);
   // Antwortet Fable selbst, gilt Fables Preis
   assert.ok(Math.abs(kostenUSD({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'claude-fable-5-2') - 48) < 1e-9);
+  // Sonnet und Haiku mit ihren Preisen, Sonnets Berater mit Fables
+  assert.ok(Math.abs(kostenUSD({ input_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'claude-sonnet-5-5') - 12.1) < 1e-9);
+  assert.ok(Math.abs(kostenUSD({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'claude-haiku-5-5') - 0.6) < 1e-9);
+  assert.ok(Math.abs(kostenUSD({ output_tokens: 0, iterations: [{ type: 'advisor_message', model: 'claude-fable-5-2', output_tokens: 1_000_000 }] }, 'claude-sonnet-5-5') - 40) < 1e-9);
   assert.equal(alsDollar(0.004), 'unter 1 Cent');
 });

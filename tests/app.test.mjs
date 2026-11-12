@@ -470,6 +470,58 @@ test('Modell und Aufwand wählen: gilt für neue Gespräche, das laufende bleibt
   await kontext.close();
 });
 
+test('Neuigkeit: einmal nach dem Öffnen, „Jetzt einstellen“ führt zur Wahl, danach nicht wieder', async () => {
+  const { seite, kontext, fehler } = await neueSeite();
+  await melde(seite, 'ich@test.de', 'geheim-ich');
+  // Wer gerade die Einführung hatte, bekommt das Fenster nicht
+  assert.equal(await seite.locator('#neuigkeit[open]').count(), 0);
+
+  // So, als hätte jemand die App schon vor der Neuigkeit benutzt (erst warten, bis sie vermerkt ist)
+  await seite.waitForFunction(() => new Promise((gut) => {
+    const a = indexedDB.open('fragmal');
+    a.onsuccess = () => {
+      const r = a.result.transaction('einstellungen').objectStore('einstellungen').getAllKeys();
+      r.onsuccess = () => { a.result.close(); gut(r.result.some((k) => String(k).endsWith(':neuigkeit'))); };
+    };
+  }));
+  await seite.evaluate(() => new Promise((gut, schlecht) => {
+    const a = indexedDB.open('fragmal');
+    a.onerror = () => schlecht(a.error);
+    a.onsuccess = () => {
+      const t = a.result.transaction('einstellungen', 'readwrite');
+      const s = t.objectStore('einstellungen');
+      s.openCursor().onsuccess = (e) => {
+        const c = e.target.result;
+        if (!c) return;
+        if (String(c.key).endsWith(':neuigkeit')) c.delete();
+        c.continue();
+      };
+      t.oncomplete = () => { a.result.close(); gut(); };
+    };
+  }));
+  await seite.reload();
+  await seite.waitForSelector('#neuigkeit[open]:has-text("Modell und Aufwand selbst wählen")');
+  await seite.click('#neuigkeit [data-act=neuigkeit-einstellen]');
+  await seite.waitForSelector('#einstellungen[open] #wahl-modell');
+  assert.equal(await seite.locator('#neuigkeit[open]').count(), 0);
+  const angebot = await seite.$$eval('#wahl-modell option', (o) => o.map((x) => x.value));
+  assert.deepEqual(angebot, ['claude-opus-5-5', 'claude-opus-5-5-allein', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2']);
+  await seite.selectOption('#wahl-modell', 'claude-sonnet-5-5');
+  await seite.waitForSelector('#wahl-modell-text:has-text("Halb so teuer")');
+  await seite.click('#einstellungen button[value=zu]');
+
+  await seite.reload();
+  await seite.waitForSelector('#verlauf > *');
+  await seite.waitForTimeout(300);
+  assert.equal(await seite.locator('#neuigkeit[open]').count(), 0);
+  await frage(seite, 'Mit Sonnet');
+  await warteAufAntwort(seite);
+  assert.equal(attrappe.anfragen.at(-1).koerper.model, 'claude-sonnet-5-5');
+
+  assert.deepEqual(fehler, []);
+  await kontext.close();
+});
+
 test('Einführung am Rechner: ohne Home-Bildschirm-Seite', async () => {
   const { seite, kontext, fehler } = await neueSeite({ begruessen: true });
   await seite.waitForSelector('.einf');

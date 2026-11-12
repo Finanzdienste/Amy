@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '5';
+export const FASSUNG = '6';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -33,8 +33,20 @@ const BEGRUESST = 'fragmal.begruesst';
 /* Wählbar in den Einstellungen. Die Funktion amy-chat prüft dieselbe Liste. */
 const MODELLE = {
   'claude-opus-5-5': {
-    name: 'Opus 5.5 + Berater (empfohlen)',
-    text: 'Opus antwortet und fragt bei schwierigen Fragen Fable 5.2 um Rat. Schnell und günstig.',
+    name: 'Opus 5.5 mit Advisor (empfohlen)',
+    text: 'Opus antwortet. Mit dem Advisor (so heißt das bei Anthropic) kann Opus bei schwierigen Fragen zwischendurch Fable 5.2, das stärkste Modell, um Rat fragen – nur dann wird es teurer. Schnell und günstig.',
+  },
+  'claude-opus-5-5-allein': {
+    name: 'Opus 5.5 ohne Advisor',
+    text: 'Nur Opus, ohne Rückfrage bei Fable. Etwas schneller und günstiger, bei kniffligen Fragen etwas schwächer.',
+  },
+  'claude-sonnet-5-5': {
+    name: 'Sonnet 5.5 mit Advisor (sparsam)',
+    text: 'Halb so teuer wie Opus und flott. Mit dem Advisor fragt Sonnet bei schwierigen Fragen Fable 5.2 um Rat.',
+  },
+  'claude-haiku-5-5': {
+    name: 'Haiku 5.5 (blitzschnell)',
+    text: 'Das kleinste Modell: sehr schnell und kostet fast nichts. Gut für schnelle Fragen, nicht für Knifflige.',
   },
   'claude-fable-5-2': {
     name: 'Fable 5.2 (das stärkste)',
@@ -49,6 +61,26 @@ const AUFWAENDE = {
   max: { name: 'Maximal', text: 'So gründlich wie möglich. Kann mehrere Minuten dauern und bei sehr langen Antworten abbrechen.' },
 };
 const VORGABE = { modell: 'claude-opus-5-5', aufwand: 'medium' };
+
+/* Was neu ist: einmal je Konto und Gerät als kleines Fenster nach dem Öffnen.
+ * Für die nächste Neuigkeit Kennung und Text ändern. Wer die Einführung
+ * gerade erst sieht, bekommt das Fenster nicht. */
+const NEUIGKEIT = {
+  kennung: 'modelle-1',
+  titel: 'Neu: Modell und Aufwand selbst wählen',
+  html: `
+    <p>Unter „Über mich &amp; Einstellungen“ kannst du jetzt aussuchen, wer dir antwortet
+      und wie gründlich nachgedacht wird.</p>
+    <ul class="einf-liste">
+      <li><strong>Opus 5.5 mit Advisor</strong> wie bisher, für fast alles richtig. Der
+        Advisor heißt: Opus darf bei Schwierigem Fable 5.2 um Rat fragen.</li>
+      <li><strong>Opus 5.5 ohne Advisor</strong>, nur Opus</li>
+      <li><strong>Fable 5.2</strong>, das stärkste, für richtig Knifflige</li>
+      <li><strong>Sonnet 5.5</strong> und <strong>Haiku 5.5</strong>, schneller und günstiger</li>
+      <li><strong>Aufwand</strong> von „Niedrig“ (schnell) bis „Maximal“ (sehr gründlich)</li>
+    </ul>
+    <p class="klein">Die Wahl gilt ab dem nächsten neuen Gespräch.</p>`,
+};
 
 const app = document.getElementById('app');
 const grob = matchMedia('(pointer: coarse)').matches;
@@ -209,15 +241,17 @@ async function zeigeApp() {
         </form>
       </main>
     </div>
-    <dialog id="einstellungen" class="dialog"></dialog>`;
+    <dialog id="einstellungen" class="dialog"></dialog>
+    <dialog id="neuigkeit" class="dialog"></dialog>`;
 
   const id = nutzerId();
-  const [gespraeche, ueberMich, eingefuehrt, modell, aufwand] = await Promise.all([
+  const [gespraeche, ueberMich, eingefuehrt, modell, aufwand, neuigkeit] = await Promise.all([
     speicher.gespraecheVon(id),
     speicher.holeEinstellung(id, 'ueberMich'),
     speicher.holeEinstellung(id, 'eingefuehrt'),
     speicher.holeEinstellung(id, 'modell'),
     speicher.holeEinstellung(id, 'aufwand'),
+    speicher.holeEinstellung(id, 'neuigkeit'),
   ]);
   zustand.gespraeche = gespraeche;
   zustand.ueberMich = ueberMich || '';
@@ -250,11 +284,26 @@ async function zeigeApp() {
 
   zeichneListe();
   zeichneGespraech({ ansEnde: true });
-  if (eingefuehrt) {
-    if (!grob) feld.focus();
-  } else {
-    fuehreEin();
-  }
+  if (!eingefuehrt) fuehreEin();
+  else if (neuigkeit !== NEUIGKEIT.kennung) zeigeNeuigkeit();
+  else if (!grob) feld.focus();
+}
+
+/* Das Fenster mit der Neuigkeit; danach nicht wieder. */
+async function zeigeNeuigkeit() {
+  const dialog = $('#neuigkeit');
+  if (!dialog) return;
+  dialog.innerHTML = `
+    <form method="dialog" class="einst neuigkeit">
+      <h2>✨ ${NEUIGKEIT.titel}</h2>
+      ${NEUIGKEIT.html}
+      <div class="reihe">
+        <button type="submit" class="knopf-haupt" value="einstellen" data-act="neuigkeit-einstellen">Jetzt einstellen</button>
+        <button type="submit" class="knopf-leise" value="spaeter">Später</button>
+      </div>
+    </form>`;
+  dialog.showModal();
+  await speicher.setzeEinstellung(nutzerId(), 'neuigkeit', NEUIGKEIT.kennung);
 }
 
 /* Die Einführung nach der Anmeldung, einmal je Konto und Gerät, und auf
@@ -264,6 +313,7 @@ async function fuehreEin() {
   const ergebnis = await zeigeEinfuehrung(app, seitenNachAnmeldung(zustand.ueberMich));
   if (nutzerId() !== id) return;
   await speicher.setzeEinstellung(id, 'eingefuehrt', true);
+  await speicher.setzeEinstellung(id, 'neuigkeit', NEUIGKEIT.kennung);
   const neu = (ergebnis.ueberMich ?? '').trim();
   if (!ergebnis.uebersprungen && neu !== zustand.ueberMich) {
     zustand.ueberMich = neu;
@@ -711,6 +761,13 @@ app.addEventListener('click', async (e) => {
   if (akt === 'einstellungen') {
     leiste(false);
     oeffneEinstellungen();
+  }
+
+  if (akt === 'neuigkeit-einstellen') {
+    e.preventDefault();
+    $('#neuigkeit')?.close();
+    oeffneEinstellungen();
+    $('#wahl-modell')?.scrollIntoView({ block: 'center' });
   }
 
   if (akt === 'ueber-mich-speichern') await speichereUeberMich();
