@@ -11,11 +11,13 @@
  * Supabase Auth. Eine gültige Anmeldung allein reicht nicht, denn im selben
  * Supabase-Projekt könnten sich auch andere Konten anlegen.
  *
- * Die Funktion speichert nichts. Gespräche liegen nur auf dem Gerät, auf dem
- * sie geführt werden, und kommen bei jeder Frage vollständig mit.
+ * Die Funktion speichert keine Gespräche. Sie liegen nur auf dem Gerät, auf dem
+ * sie geführt werden, und kommen bei jeder Frage vollständig mit. Aufgeschrieben
+ * wird nur, was eine Antwort gekostet hat (für die Anzeige des Guthabens).
  */
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.7.0";
+import { kostenUSD } from "./kosten.js";
 
 export const MODELL = "claude-opus-5-5";
 export const BERATER = "claude-fable-5-2";
@@ -68,8 +70,8 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 export type Umgebung = {
   anthropicKey?: string;
-  /** Admin-Schlüssel der Console, nur zum Lesen des Kostenberichts. */
-  adminKey?: string;
+  /** Geheimer Schlüssel des Supabase-Projekts, nur für die Tabelle fragmal_kosten. */
+  secretKey?: string;
   /** Monatliches API-Guthaben in US-Dollar (Max: 100, Ultra: 200). */
   guthabenUsd?: number;
   /** Tag im Monat, an dem das Guthaben neu beginnt (1–28). */
@@ -161,11 +163,11 @@ export function systemText(kontext: Kontext, { berater = true } = {}): string {
 }
 
 /*
- * Wie viel vom API-Guthaben schon weg ist, für die Anzeige in der App. Die
- * Zahl kommt aus Anthropics Kostenbericht (Admin-API) und umfasst alles, was
- * über den Schlüssel der Organisation läuft, auch die anderen Apps. Der
- * Bericht hinkt ein paar Minuten hinterher; die Funktion fragt ihn höchstens
- * alle fünf Minuten ab.
+ * Wie viel vom API-Guthaben „Frag mal“ schon verbraucht hat, für die Anzeige
+ * in der App. Die Funktion schreibt nach jeder Antwort auf, was sie ungefähr
+ * gekostet hat (Tabelle fragmal_kosten: Zeit, Nutzer-ID, Modell, Betrag, keine
+ * Inhalte), und zählt das seit Beginn des Abrechnungsmonats zusammen. Andere
+ * Apps am selben API-Zugang zählen nicht mit.
  */
 export function abrechnungsBeginn(jetzt: Date, tag = 1): Date {
   const t = Math.min(Math.max(Math.trunc(tag) || 1, 1), 28);
@@ -176,54 +178,47 @@ export function abrechnungsBeginn(jetzt: Date, tag = 1): Date {
     : new Date(Date.UTC(j, m - 1, t));
 }
 
-let verbrauchZwischen: { zeit: number; daten: unknown } | null = null;
+/* Der neue geheime Schlüssel (sb_secret_…) gehört nur in apikey; im Kopf
+ * Authorization erwartet Supabase ein JWT. */
+function datenbankKoepfe(env: Umgebung): Record<string, string> {
+  return { apikey: env.secretKey!, "Content-Type": "application/json" };
+}
+
+async function kostenMerken(env: Umgebung, nutzer: string, modell: string, usd: number) {
+  if (!env.secretKey || !(usd >= 0)) return;
+  try {
+    const antwort = await fetch(`${env.supabaseUrl}/rest/v1/fragmal_kosten`, {
+      method: "POST",
+      headers: { ...datenbankKoepfe(env), Prefer: "return=minimal" },
+      body: JSON.stringify({ nutzer, modell, usd: Math.round(usd * 1e6) / 1e6 }),
+    });
+    if (!antwort.ok) console.error(`Kosten merken: HTTP ${antwort.status}`);
+  } catch (fehler) {
+    console.error(fehler);
+  }
+}
 
 async function verbrauch(env: Umgebung): Promise<unknown> {
-  if (!env.adminKey) return { verfuegbar: false };
-  if (verbrauchZwischen && Date.now() - verbrauchZwischen.zeit < 5 * 60_000) {
-    return verbrauchZwischen.daten;
+  if (!env.secretKey) return { verfuegbar: false };
+  const seit = abrechnungsBeginn(new Date(), env.abrechnungTag);
+  const antwort = await fetch(`${env.supabaseUrl}/rest/v1/rpc/fragmal_kosten_seit`, {
+    method: "POST",
+    headers: datenbankKoepfe(env),
+    body: JSON.stringify({ seit: seit.toISOString() }),
+  });
+  if (!antwort.ok) {
+    console.error(`Verbrauch lesen: HTTP ${antwort.status}`);
+    return { verfuegbar: false };
   }
-  const jetzt = new Date();
-  const seit = abrechnungsBeginn(jetzt, env.abrechnungTag);
-  const basis = env.anthropicBaseUrl ?? "https://api.anthropic.com";
-  let cent = 0;
-  let seite = "";
-  for (let i = 0; i < 5; i++) {
-    const adresse = new URL("/v1/organizations/cost_report", basis);
-    adresse.searchParams.set("starting_at", seit.toISOString().replace(/\.\d{3}Z$/, "Z"));
-    adresse.searchParams.set("ending_at", jetzt.toISOString().replace(/\.\d{3}Z$/, "Z"));
-    adresse.searchParams.set("bucket_width", "1d");
-    adresse.searchParams.set("limit", "31");
-    if (seite) adresse.searchParams.set("page", seite);
-    const antwort = await fetch(adresse, {
-      headers: {
-        "x-api-key": env.adminKey,
-        "anthropic-version": "2026-10-21",
-        "user-agent": "FragMal/1 (private Chat-App)",
-      },
-    });
-    if (!antwort.ok) {
-      console.error(`Kostenbericht: HTTP ${antwort.status}`);
-      return { verfuegbar: false, fehler: antwort.status };
-    }
-    const bericht = await antwort.json();
-    for (const fach of bericht.data ?? []) {
-      for (const posten of fach.results ?? []) cent += Number(posten.amount) || 0;
-    }
-    if (!bericht.has_more || !bericht.next_page) break;
-    seite = bericht.next_page;
-  }
-  const usd = cent / 100;
+  const usd = Number(await antwort.json()) || 0;
   const guthaben = env.guthabenUsd && env.guthabenUsd > 0 ? env.guthabenUsd : 100;
-  const daten = {
+  return {
     verfuegbar: true,
     usd,
     guthaben,
     prozent: Math.round((usd / guthaben) * 1000) / 10,
     seit: seit.toISOString().slice(0, 10),
   };
-  verbrauchZwischen = { zeit: Date.now(), daten };
-  return daten;
 }
 
 function corsKoepfe(req: Request, env: Umgebung): Record<string, string> {
@@ -437,13 +432,15 @@ export function erstelleHandler(env: Umgebung) {
             nutzungen.push(nachricht.usage);
             if (nachricht.stop_reason !== "pause_turn" || runde >= MAX_FORTSETZUNGEN) break;
           }
+          const nutzung = nutzungen.length === 1 ? nutzungen[0] : nutzungen;
           sende({
             t: "fertig",
             inhalt,
             stop: nachricht.stop_reason,
             modell: nachricht.model,
-            nutzung: nutzungen.length === 1 ? nutzungen[0] : nutzungen,
+            nutzung,
           });
+          await kostenMerken(env, nutzer.id, nachricht.model, kostenUSD(nutzung, nachricht.model));
         } catch (fehler) {
           if (!abgebrochen) console.error(fehler);
           sende({ t: "fehler", text: fehlerText(fehler) });

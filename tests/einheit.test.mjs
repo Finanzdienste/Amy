@@ -132,3 +132,10 @@ test('Kosten', () => {
   assert.ok(Math.abs(kostenUSD({ output_tokens: 0, iterations: [{ type: 'advisor_message', model: 'claude-fable-5-2', output_tokens: 1_000_000 }] }, 'claude-sonnet-5-5') - 40) < 1e-9);
   assert.equal(alsDollar(0.004), 'unter 1 Cent');
 });
+
+test('die Funktion rechnet mit denselben Preisen wie die App', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(new URL('../js/kosten.js', import.meta.url), 'utf8');
+  const funktion = await readFile(new URL('../supabase/functions/amy-chat/kosten.js', import.meta.url), 'utf8');
+  assert.equal(funktion, app, 'supabase/functions/amy-chat/kosten.js ist eine Kopie von js/kosten.js');
+});

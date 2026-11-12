@@ -25,7 +25,6 @@ before(async () => {
   statisch = await starteStatisch({ konfig });
   funktion = await starteFunktion({
     attrappe: attrappe.url,
-    admin: 'admin-test',
     erlaubt: [NUTZER['amy@test.de'].id, NUTZER['ich@test.de'].id],
     urspruenge: [statisch.url],
   });
@@ -525,6 +524,9 @@ test('Neuigkeit: einmal nach dem Öffnen, „Jetzt einstellen“ führt zur Wahl
 
 test('API-Guthaben: Anzeige in Prozent in der Leiste und in den Einstellungen', async () => {
   const { seite, kontext, fehler } = await neueSeite();
+  // So, als hätte die App diesen Monat schon 20 $ verbraucht
+  attrappe.kosten.length = 0;
+  attrappe.kosten.push({ nutzer: NUTZER['amy@test.de'].id, modell: 'claude-opus-5-5', usd: 20, zeit: new Date().toISOString() });
   await melde(seite, 'amy@test.de', 'geheim-amy');
   await seite.waitForSelector('#guthaben-leiste:has-text("20 % verbraucht")');
   assert.equal(await seite.getAttribute('#guthaben-leiste .guthaben-balken', 'aria-valuenow'), '20');

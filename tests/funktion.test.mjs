@@ -244,37 +244,35 @@ test('API-Schlüssel abgelehnt: Fehler im Strom', async () => {
   }
 });
 
-test('Verbrauch: ohne Admin-Schlüssel keine Zahl, mit ihm der Kostenbericht in Prozent', async () => {
-  const ohne = await post(funktion.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } });
-  assert.equal(ohne.status, 200);
-  assert.deepEqual(await ohne.json(), { verfuegbar: false });
+test('Verbrauch: jede Antwort wird mit ihren Kosten gemerkt, ohne Inhalt, und in Prozent zusammengezählt', async () => {
+  const vorher = attrappe.kosten.length;
+  await ereignisse(await post(funktion.url, { token: `tok-${AMY}`, koerper: frageAn('Was kostet das?') }));
+  for (let i = 0; i < 40 && attrappe.kosten.length === vorher; i++) await new Promise((r) => setTimeout(r, 25));
+  const zeile = attrappe.kosten.at(-1);
+  assert.equal(attrappe.kosten.length, vorher + 1);
+  assert.deepEqual(Object.keys(zeile).sort(), ['modell', 'nutzer', 'usd', 'zeit']);
+  assert.equal(zeile.nutzer, AMY);
+  assert.equal(zeile.modell, 'claude-opus-5-5');
+  assert.ok(zeile.usd > 0);
 
-  const fremd = await post(funktion.url, { token: 'tok-33333333-3333-4333-8333-333333333333', koerper: { art: 'verbrauch' } });
+  const antwort = await post(funktion.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } });
+  const daten = await antwort.json();
+  const summe = attrappe.kosten.reduce((s, k) => s + Number(k.usd), 0);
+  assert.equal(daten.verfuegbar, true);
+  assert.ok(Math.abs(daten.usd - summe) < 1e-9);
+  assert.equal(daten.guthaben, 100);
+  assert.equal(daten.prozent, Math.round(summe * 10) / 10);
+  const jetzt = new Date();
+  assert.equal(daten.seit, new Date(Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), 1)).toISOString().slice(0, 10));
+
+  const fremd = await post(funktion.url, { token: `tok-${GAST}`, koerper: { art: 'verbrauch' } });
   assert.equal(fremd.status, 403);
 
-  const mit = await starteFunktion({ attrappe: attrappe.url, admin: 'admin-test', erlaubt: [AMY], urspruenge: [URSPRUNG] });
+  const ohne = await starteFunktion({ attrappe: attrappe.url, geheim: '', erlaubt: [AMY], urspruenge: [URSPRUNG] });
   try {
-    const vorher = attrappe.anfragen.length;
-    const antwort = await post(mit.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } });
-    const daten = await antwort.json();
-    assert.equal(daten.verfuegbar, true);
-    assert.equal(daten.usd, 20);
-    assert.equal(daten.guthaben, 100);
-    assert.equal(daten.prozent, 20);
-    const jetzt = new Date();
-    const erster = new Date(Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), 1)).toISOString().slice(0, 10);
-    assert.equal(daten.seit, erster);
-    const abfrage = attrappe.kostenAbfragen.at(-1);
-    assert.equal(abfrage.starting_at, `${erster}T00:00:00Z`);
-    assert.equal(abfrage.bucket_width, '1d');
-    // Fragt keine Nachricht an
-    assert.equal(attrappe.anfragen.length, vorher);
-    // Zweimal kurz hintereinander: Anthropic wird nur einmal gefragt
-    const zahl = attrappe.kostenAbfragen.length;
-    await (await post(mit.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } })).json();
-    assert.equal(attrappe.kostenAbfragen.length, zahl);
+    assert.deepEqual(await (await post(ohne.url, { token: `tok-${AMY}`, koerper: { art: 'verbrauch' } })).json(), { verfuegbar: false });
   } finally {
-    await mit.schliessen();
+    await ohne.schliessen();
   }
 });
 

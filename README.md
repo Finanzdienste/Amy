@@ -84,7 +84,7 @@ löschen. Bei einer App auf dem Home-Bildschirm tut es das nicht.
 Handy / Browser  ──►  Supabase-Funktion amy-chat  ──►  Anthropic API
   (GitHub Pages)        prüft die Anmeldung,             Claude Opus 5.5
   Gespräche liegen      hält den API-Schlüssel,
-  nur hier              speichert nichts
+  nur hier              merkt sich nur die Kosten
 ```
 
 Die App selbst ist eine statische Seite ohne Abhängigkeiten und ohne
@@ -126,12 +126,13 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   nächsten neuen Gespräch. Die Funktion prüft beides gegen eine feste Liste.
 - **API-Guthaben in Prozent.** Unten in der Gesprächsliste und in den
   Einstellungen steht, wie viel vom monatlichen API-Guthaben schon weg ist.
-  Die Zahl kommt aus Anthropics Kostenbericht (Admin-API) und umfasst alles,
-  was über die Organisation läuft, auch andere Apps. Dafür braucht die
-  Funktion das Secret `ANTHROPIC_ADMIN_KEY` (ein Admin-Schlüssel aus der
-  Console, nur zum Lesen); ohne ihn bleibt die Anzeige weg. Optional:
-  `API_GUTHABEN_USD` (Vorgabe 100) und `ABRECHNUNG_TAG` (Tag, an dem das
-  Guthaben neu beginnt, Vorgabe 1).
+  Die Funktion schreibt nach jeder Antwort auf, was sie ungefähr gekostet hat
+  (Tabelle `fragmal_kosten`: Zeit, Nutzer-ID, Modell, Betrag, kein Inhalt;
+  gesperrt für alle außer der Funktion), und zählt das seit Beginn des
+  Abrechnungsmonats zusammen, über alle Geräte. Andere Apps am selben
+  API-Zugang zählen nicht mit; Anthropics Kostenbericht (Admin-API) gibt es
+  für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
+  und `ABRECHNUNG_TAG` (Tag, an dem das Guthaben neu beginnt, Vorgabe 1).
 - **Neuigkeiten.** Nach einer Neuerung zeigt die App einmal je Konto und Gerät
   ein kleines Fenster (`NEUIGKEIT` in `js/app.js`); wer gerade die Einführung
   gesehen hat, bekommt es nicht.
@@ -162,7 +163,9 @@ liegt.
 - Gespräche und „Über mich“ liegen nur auf dem Gerät, im Speicher des
   Browsers (IndexedDB), getrennt nach Konto.
 - Für jede Antwort geht das Gespräch über die Funktion an Anthropic. Die
-  Funktion speichert nichts und schreibt keine Inhalte ins Protokoll.
+  Funktion speichert keine Inhalte und schreibt keine ins Protokoll. Sie
+  merkt sich nur, was jede Antwort gekostet hat (Zeit, Nutzer-ID, Modell,
+  Betrag).
 - Ein Gespräch, das auf dem Handy geführt wurde, ist auf dem Rechner nicht
   zu sehen, und umgekehrt.
 

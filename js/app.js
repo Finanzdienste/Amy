@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '7';
+export const FASSUNG = '8';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -643,9 +643,9 @@ function guthabenHtml(g, { ausfuehrlich = false } = {}) {
   const seit = new Date(`${g.seit}T00:00:00Z`).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
   return `<div class="guthaben">${balken}
     <p><strong>${prozent} %</strong> verbraucht: ${alsDollar(g.usd)} von ${alsDollar(g.guthaben)} seit ${seit}.</p>
-    <p class="klein">Alles zusammen, was über denselben API-Zugang läuft, auch andere Apps.
-      Der Stand hinkt ein paar Minuten hinterher. Ist das Guthaben aufgebraucht, geht es
-      im nächsten Monat weiter.</p></div>`;
+    <p class="klein">Gezählt wird, was über diese App läuft, auf allen Geräten zusammen.
+      Andere Apps am selben API-Zugang sind nicht dabei. Ist das Guthaben aufgebraucht,
+      geht es im nächsten Monat weiter.</p></div>`;
 }
 
 function zeichneGuthaben() {
@@ -713,7 +713,7 @@ function oeffneEinstellungen() {
       </div>
 
       <p class="klein fuss">Die Gespräche liegen nur auf diesem Gerät. Für jede Antwort geht das
-        Gespräch über den Server der App an Anthropic; der Server selbst speichert nichts.
+        Gespräch über den Server der App an Anthropic; der Server merkt sich nur, was eine Antwort gekostet hat, nichts vom Inhalt.
         Fassung ${FASSUNG}</p>
     </form>`;
   dialog.showModal();

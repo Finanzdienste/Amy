@@ -75,7 +75,7 @@ function letzteFrage(nachrichten) {
 
 export async function starteAttrappe() {
   const anfragen = [];
-  const kostenAbfragen = [];
+  const kosten = [];
   let zaehler = 0;
 
   const server = http.createServer(async (req, res) => {
@@ -138,22 +138,24 @@ export async function starteAttrappe() {
       return;
     }
 
-    // Kostenbericht der Admin-API: zwei Tage, zusammen 20 $ (in Cent)
-    if (url.pathname === '/v1/organizations/cost_report') {
-      kostenAbfragen.push(Object.fromEntries(url.searchParams));
-      if (req.headers['x-api-key'] !== 'admin-test') {
-        json(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+    // Die Tabelle fragmal_kosten und ihre Summe (PostgREST), nur mit dem geheimen Schlüssel
+    if (url.pathname.startsWith('/rest/v1/')) {
+      if (req.headers.apikey !== 'sb_secret_test' || req.headers.authorization) {
+        json(401, { message: 'Invalid API key' });
         return;
       }
-      json(200, {
-        data: [
-          { starting_at: '2026-11-01T00:00:00Z', ending_at: '2026-11-02T00:00:00Z', results: [{ currency: 'USD', amount: '1234.5' }] },
-          { starting_at: '2026-11-02T00:00:00Z', ending_at: '2026-11-03T00:00:00Z', results: [{ currency: 'USD', amount: '765.5' }] },
-        ],
-        has_more: false,
-        next_page: null,
-      });
-      return;
+      const daten = roh ? JSON.parse(roh) : {};
+      if (url.pathname === '/rest/v1/fragmal_kosten' && req.method === 'POST') {
+        kosten.push({ ...daten, zeit: new Date().toISOString() });
+        res.writeHead(201);
+        res.end();
+        return;
+      }
+      if (url.pathname === '/rest/v1/rpc/fragmal_kosten_seit' && req.method === 'POST') {
+        const seit = Date.parse(daten.seit);
+        json(200, kosten.filter((k) => Date.parse(k.zeit) >= seit).reduce((s, k) => s + Number(k.usd), 0));
+        return;
+      }
     }
 
     if (url.pathname === '/v1/messages') {
@@ -263,7 +265,7 @@ export async function starteAttrappe() {
   return {
     url: `http://127.0.0.1:${port}`,
     anfragen,
-    kostenAbfragen,
+    kosten,
     schliessen: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
   };
 }
