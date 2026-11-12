@@ -16,7 +16,7 @@ Deno.serve(
   },
   erstelleHandler({
     anthropicKey: Deno.env.get("ANTHROPIC_API_KEY") || undefined,
-    adminKey: Deno.env.get("ANTHROPIC_ADMIN_KEY") || undefined,
+    secretKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || undefined,
     guthabenUsd: Number(Deno.env.get("API_GUTHABEN_USD")) || 100,
     abrechnungTag: Number(Deno.env.get("ABRECHNUNG_TAG")) || 1,
     anthropicBaseUrl: Deno.env.get("ANTHROPIC_BASE_URL"),

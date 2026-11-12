@@ -98,9 +98,9 @@ export async function frage({ token, kontext, nachrichten, signal, beiEreignis }
   return fertig;
 }
 
-/* Wie viel vom monatlichen API-Guthaben schon verbraucht ist (alle Apps
- * zusammen, aus Anthropics Kostenbericht). { verfuegbar: false }, wenn die
- * Funktion keinen Admin-Schlüssel hat oder etwas hakt. */
+/* Wie viel vom monatlichen API-Guthaben diese App schon verbraucht hat (alle
+ * Geräte zusammen, von der Funktion mitgezählt). { verfuegbar: false }, wenn
+ * etwas hakt. */
 export async function verbrauchHolen({ token }) {
   try {
     const antwort = await fetch(KONFIG.funktionUrl, {

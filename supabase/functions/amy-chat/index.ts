@@ -9,9 +9,6 @@
  *
  * Optional:
  *
- *   ANTHROPIC_ADMIN_KEY  Admin-Schlüssel aus der Console (sk-ant-admin…), nur
- *                        damit die App anzeigen kann, wie viel vom Guthaben
- *                        schon verbraucht ist; ohne ihn keine Anzeige
  *   API_GUTHABEN_USD     monatliches Guthaben in US-Dollar, ohne Angabe 100
  *   ABRECHNUNG_TAG       Tag im Monat, an dem das Guthaben neu beginnt, ohne
  *                        Angabe der 1.
@@ -19,7 +16,9 @@
  *   ERLAUBTE_URSPRUENGE  von welchen Adressen die App aufgerufen werden darf,
  *                        durch Komma getrennt; ohne Angabe nur GitHub Pages
  *
- * SUPABASE_URL und die Schlüssel des Projekts setzt Supabase selbst.
+ * SUPABASE_URL und die Schlüssel des Projekts setzt Supabase selbst. Mit dem
+ * geheimen Schlüssel schreibt die Funktion in die Tabelle fragmal_kosten, was
+ * jede Antwort gekostet hat.
  */
 
 import { erstelleHandler } from "./handler.ts";
@@ -44,9 +43,22 @@ function publishableKey(): string {
   return Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 }
 
+function secretKey(): string {
+  const neu = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (neu) {
+    try {
+      const schluessel = JSON.parse(neu);
+      if (schluessel.default) return schluessel.default;
+    } catch {
+      // weiter mit dem alten Schlüssel
+    }
+  }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+}
+
 Deno.serve(erstelleHandler({
   anthropicKey: Deno.env.get("ANTHROPIC_API_KEY") || undefined,
-  adminKey: Deno.env.get("ANTHROPIC_ADMIN_KEY") || undefined,
+  secretKey: secretKey() || undefined,
   guthabenUsd: Number(Deno.env.get("API_GUTHABEN_USD")) || 100,
   abrechnungTag: Number(Deno.env.get("ABRECHNUNG_TAG")) || 1,
   supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
