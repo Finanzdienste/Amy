@@ -9,7 +9,7 @@
  * VERSION hochzählen, wenn Dateien dazukommen oder wegfallen.
  */
 
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = `fragmal-${VERSION}`;
 
 const SHELL = [

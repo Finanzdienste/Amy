@@ -526,7 +526,8 @@ test('API-Guthaben: Anzeige in Prozent in der Leiste und in den Einstellungen', 
   const { seite, kontext, fehler } = await neueSeite();
   // So, als hätte die App diesen Monat schon 20 $ verbraucht
   attrappe.kosten.length = 0;
-  attrappe.kosten.push({ nutzer: NUTZER['amy@test.de'].id, modell: 'claude-opus-5-5', usd: 20, zeit: new Date().toISOString() });
+  attrappe.kosten.push({ nutzer: NUTZER['amy@test.de'].id, modell: 'claude-opus-5-5', usd: 5, zeit: new Date().toISOString() });
+  attrappe.kosten.push({ app: 'boxenstopp', nutzer: '00000000-0000-0000-0000-000000000000', modell: 'claude-opus-5-5', usd: 15, zeit: new Date().toISOString() });
   await melde(seite, 'amy@test.de', 'geheim-amy');
   await seite.waitForSelector('#guthaben-leiste:has-text("20 % verbraucht")');
   assert.equal(await seite.getAttribute('#guthaben-leiste .guthaben-balken', 'aria-valuenow'), '20');
@@ -534,6 +535,7 @@ test('API-Guthaben: Anzeige in Prozent in der Leiste und in den Einstellungen', 
   await seite.waitForSelector('#guthaben-einst:has-text("20 %")');
   const text = await seite.textContent('#guthaben-einst');
   assert.match(text, /20,00\s\$ von 100,00\s\$/);
+  assert.match(text, /davon Boxenstopp 15,00\s\$, Frag mal 5,00\s\$/);
   assert.deepEqual(fehler, []);
   await kontext.close();
 });

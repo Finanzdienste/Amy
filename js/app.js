@@ -17,7 +17,7 @@ import {
   istInstalliert, istIOS, seitenNachAnmeldung, seitenVorAnmeldung, zeigeEinfuehrung,
 } from './einfuehrung.js';
 
-export const FASSUNG = '8';
+export const FASSUNG = '9';
 
 /* Zum Antippen im leeren Gespräch: Füllt das Eingabefeld, abgeschickt wird
  * erst, wenn man selbst auf ↑ tippt. */
@@ -643,9 +643,20 @@ function guthabenHtml(g, { ausfuehrlich = false } = {}) {
   const seit = new Date(`${g.seit}T00:00:00Z`).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
   return `<div class="guthaben">${balken}
     <p><strong>${prozent} %</strong> verbraucht: ${alsDollar(g.usd)} von ${alsDollar(g.guthaben)} seit ${seit}.</p>
-    <p class="klein">Gezählt wird, was über diese App läuft, auf allen Geräten zusammen.
-      Andere Apps am selben API-Zugang sind nicht dabei. Ist das Guthaben aufgebraucht,
-      geht es im nächsten Monat weiter.</p></div>`;
+    ${aufteilung(g.apps)}
+    <p class="klein">Gezählt wird, was diese App und Boxenstopp verbrauchen, auf allen Geräten
+      zusammen; andere Apps am selben API-Zugang sind nicht dabei. Ist das Guthaben
+      aufgebraucht, geht es im nächsten Monat weiter.</p></div>`;
+}
+
+const APP_NAMEN = { fragmal: 'Frag mal', boxenstopp: 'Boxenstopp' };
+
+/* „davon Frag mal 1,20 $, Boxenstopp 3,40 $“, das Teuerste zuerst. */
+function aufteilung(apps) {
+  const teile = Object.entries(apps || {}).filter(([, usd]) => usd >= 0.005).sort((a, b) => b[1] - a[1]);
+  if (teile.length < 2) return '';
+  return `<p class="klein">davon ${teile.map(([app, usd]) =>
+    `${maskiere(APP_NAMEN[app] || app)} ${alsDollar(usd)}`).join(', ')}</p>`;
 }
 
 function zeichneGuthaben() {

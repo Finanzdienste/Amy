@@ -16,11 +16,11 @@ function denoPfad() {
   return fs.existsSync(lokal) ? lokal : 'deno';
 }
 
-export async function starteFunktion({ attrappe, schluessel = 'test-schluessel', geheim = 'sb_secret_test', erlaubt = [], urspruenge = [], herzschlag = '' }) {
+export async function starteFunktion({ attrappe, schluessel = 'test-schluessel', geheim = 'sb_secret_test', erlaubt = [], urspruenge = [], herzschlag = '', datei = 'funktion-lokal.ts' }) {
   // --node-modules-dir=none: Deno holt npm-Pakete selbst, wie bei Supabase,
   // statt im node_modules der Tests zu suchen.
   const kind = spawn(denoPfad(), ['run', '--node-modules-dir=none', '--allow-net', '--allow-env', '--allow-read', '--allow-sys',
-    path.join(wurzel, 'tests', 'funktion-lokal.ts')], {
+    path.join(wurzel, 'tests', datei)], {
     cwd: wurzel,
     env: {
       ...process.env,
