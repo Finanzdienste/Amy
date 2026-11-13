@@ -167,7 +167,8 @@ export function systemText(kontext: Kontext, { berater = true } = {}): string {
  * in der App. Die Funktion schreibt nach jeder Antwort auf, was sie ungefähr
  * gekostet hat (Tabelle fragmal_kosten: Zeit, Nutzer-ID, Modell, Betrag, keine
  * Inhalte), und zählt das seit Beginn des Abrechnungsmonats zusammen. Andere
- * Apps am selben API-Zugang zählen nicht mit.
+ * Apps am selben API-Zugang (Boxenstopp) melden ihre Kosten über die Funktion
+ * api-kosten in dieselbe Tabelle; die Summe ist nach App aufgeteilt.
  */
 export function abrechnungsBeginn(jetzt: Date, tag = 1): Date {
   const t = Math.min(Math.max(Math.trunc(tag) || 1, 1), 28);
@@ -201,7 +202,7 @@ async function kostenMerken(env: Umgebung, nutzer: string, modell: string, usd: 
 async function verbrauch(env: Umgebung): Promise<unknown> {
   if (!env.secretKey) return { verfuegbar: false };
   const seit = abrechnungsBeginn(new Date(), env.abrechnungTag);
-  const antwort = await fetch(`${env.supabaseUrl}/rest/v1/rpc/fragmal_kosten_seit`, {
+  const antwort = await fetch(`${env.supabaseUrl}/rest/v1/rpc/fragmal_kosten_nach_app`, {
     method: "POST",
     headers: datenbankKoepfe(env),
     body: JSON.stringify({ seit: seit.toISOString() }),
@@ -210,11 +211,16 @@ async function verbrauch(env: Umgebung): Promise<unknown> {
     console.error(`Verbrauch lesen: HTTP ${antwort.status}`);
     return { verfuegbar: false };
   }
-  const usd = Number(await antwort.json()) || 0;
+  const apps: Record<string, number> = {};
+  for (const zeile of (await antwort.json()) ?? []) {
+    apps[String(zeile.app)] = Number(zeile.usd) || 0;
+  }
+  const usd = Object.values(apps).reduce((s, x) => s + x, 0);
   const guthaben = env.guthabenUsd && env.guthabenUsd > 0 ? env.guthabenUsd : 100;
   return {
     verfuegbar: true,
     usd,
+    apps,
     guthaben,
     prozent: Math.round((usd / guthaben) * 1000) / 10,
     seit: seit.toISOString().slice(0, 10),

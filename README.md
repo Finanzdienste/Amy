@@ -129,9 +129,12 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   Die Funktion schreibt nach jeder Antwort auf, was sie ungefähr gekostet hat
   (Tabelle `fragmal_kosten`: Zeit, Nutzer-ID, Modell, Betrag, kein Inhalt;
   gesperrt für alle außer der Funktion), und zählt das seit Beginn des
-  Abrechnungsmonats zusammen, über alle Geräte. Andere Apps am selben
-  API-Zugang zählen nicht mit; Anthropics Kostenbericht (Admin-API) gibt es
-  für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
+  Abrechnungsmonats zusammen, über alle Geräte. Boxenstopp meldet seine
+  Kosten über die Funktion `api-kosten` in dieselbe Tabelle (`app`); wer
+  melden darf, prüft die Funktion bei Anthropic: Der mitgeschickte Schlüssel
+  muss zur selben Organisation gehören wie ihr eigener. Gespeichert wird der
+  Schlüssel nicht. Andere Apps zählen nicht mit; Anthropics Kostenbericht
+  (Admin-API) gibt es für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
   und `ABRECHNUNG_TAG` (Tag, an dem das Guthaben neu beginnt, Vorgabe 1).
 - **Neuigkeiten.** Nach einer Neuerung zeigt die App einmal je Konto und Gerät
   ein kleines Fenster (`NEUIGKEIT` in `js/app.js`); wer gerade die Einführung

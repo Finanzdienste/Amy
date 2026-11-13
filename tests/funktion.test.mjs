@@ -260,6 +260,7 @@ test('Verbrauch: jede Antwort wird mit ihren Kosten gemerkt, ohne Inhalt, und in
   const summe = attrappe.kosten.reduce((s, k) => s + Number(k.usd), 0);
   assert.equal(daten.verfuegbar, true);
   assert.ok(Math.abs(daten.usd - summe) < 1e-9);
+  assert.ok(Math.abs(daten.apps.fragmal - summe) < 1e-9);
   assert.equal(daten.guthaben, 100);
   assert.equal(daten.prozent, Math.round(summe * 10) / 10);
   const jetzt = new Date();

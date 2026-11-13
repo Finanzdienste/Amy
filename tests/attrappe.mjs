@@ -76,6 +76,7 @@ function letzteFrage(nachrichten) {
 export async function starteAttrappe() {
   const anfragen = [];
   const kosten = [];
+  const modellAbfragen = [];
   let zaehler = 0;
 
   const server = http.createServer(async (req, res) => {
@@ -151,11 +152,30 @@ export async function starteAttrappe() {
         res.end();
         return;
       }
-      if (url.pathname === '/rest/v1/rpc/fragmal_kosten_seit' && req.method === 'POST') {
+      if (url.pathname === '/rest/v1/rpc/fragmal_kosten_nach_app' && req.method === 'POST') {
         const seit = Date.parse(daten.seit);
-        json(200, kosten.filter((k) => Date.parse(k.zeit) >= seit).reduce((s, k) => s + Number(k.usd), 0));
+        const summen = {};
+        for (const k of kosten) {
+          if (Date.parse(k.zeit) < seit) continue;
+          const app = k.app ?? 'fragmal';
+          summen[app] = (summen[app] ?? 0) + Number(k.usd);
+        }
+        json(200, Object.entries(summen).map(([app, usd]) => ({ app, usd })));
         return;
       }
+    }
+
+    // Wem ein Schlüssel gehört: Anthropic sagt es im Kopf anthropic-organization-id
+    if (url.pathname === '/v1/models') {
+      modellAbfragen.push(req.headers['x-api-key']);
+      const org = { 'test-schluessel': 'org-tobi', 'sk-ant-boxenstopp-test': 'org-tobi', 'sk-ant-fremder-test': 'org-fremd' }[req.headers['x-api-key']];
+      if (!org) {
+        json(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+        return;
+      }
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json', 'anthropic-organization-id': org });
+      res.end(JSON.stringify({ data: [{ id: 'claude-opus-5-5' }], has_more: false }));
+      return;
     }
 
     if (url.pathname === '/v1/messages') {
@@ -266,6 +286,7 @@ export async function starteAttrappe() {
     url: `http://127.0.0.1:${port}`,
     anfragen,
     kosten,
+    modellAbfragen,
     schliessen: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
   };
 }
