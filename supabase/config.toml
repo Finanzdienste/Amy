@@ -7,3 +7,8 @@
 
 [functions.amy-chat]
 verify_jwt = false
+
+# api-kosten: Andere Apps (Boxenstopp) melden ohne Anmeldung, sie weisen sich
+# mit der Prüfsumme ihres Anthropic-Schlüssels aus (siehe handler.ts).
+[functions.api-kosten]
+verify_jwt = false

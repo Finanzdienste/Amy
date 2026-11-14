@@ -4,45 +4,46 @@
  * fragmal_kosten. So kann „Frag mal“ anzeigen, wie viel vom monatlichen
  * API-Guthaben insgesamt schon weg ist.
  *
- * Wer melden darf: wer einen Anthropic-Schlüssel derselben Organisation hat.
- * Die App schickt ihren Schlüssel im Kopf x-anthropic-key mit; die Funktion
- * fragt Anthropic einmal (GET /v1/models), zu welcher Organisation er gehört,
- * und vergleicht das mit dem eigenen Schlüssel. Den Schlüssel speichert sie
- * nicht und schreibt ihn nirgends hin; sie merkt sich nur seinen Hash, solange
- * sie läuft, damit sie Anthropic nicht bei jeder Meldung fragen muss.
+ * Wer melden darf: wer einen erlaubten Anthropic-Schlüssel hat. Die App
+ * schickt dafür nicht den Schlüssel, sondern nur seine Prüfsumme (SHA-256,
+ * hex) im Kopf x-schluessel-hash – der Schlüssel selbst geht nur an
+ * Anthropic. Erlaubt sind der eigene Schlüssel der Funktion (derselbe wie bei
+ * amy-chat) und die Prüfsummen in ERLAUBTE_SCHLUESSEL (für andere Schlüssel
+ * derselben Organisation, etwa den von Boxenstopp). Ein mitgeschickter
+ * Schlüssel (x-anthropic-key, so meldeten ältere Fassungen) zählt nicht; die
+ * Vorabfrage des Browsers erlaubt den Kopf nicht einmal mehr, dann schickt
+ * ihn der Browser gar nicht erst.
  */
 
 export type Umgebung = {
-  /** Der eigene Anthropic-Schlüssel (derselbe wie bei amy-chat). */
+  /** Der eigene Anthropic-Schlüssel (derselbe wie bei amy-chat) – seine Prüfsumme ist erlaubt. */
   anthropicKey?: string;
-  /** Nur für die Tests: lenkt die Anfragen an eine simulierte API. */
-  anthropicBaseUrl?: string;
+  /** Weitere erlaubte Schlüssel als Prüfsumme (SHA-256, hex). */
+  erlaubteHashes?: string[];
   supabaseUrl: string;
   secretKey?: string;
   erlaubteUrspruenge: string[];
 };
 
 const KEIN_NUTZER = "00000000-0000-0000-0000-000000000000";
+const PRUEFSUMME = /^[0-9a-f]{64}$/;
 
-async function hash(text: string): Promise<string> {
+export async function hash(text: string): Promise<string> {
   const daten = new TextEncoder().encode(text);
   const h = new Uint8Array(await crypto.subtle.digest("SHA-256", daten));
   return Array.from(h, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function erstelleHandler(env: Umgebung) {
-  const basis = env.anthropicBaseUrl ?? "https://api.anthropic.com";
-  const geprueft = new Set<string>();
-  let eigeneOrg: Promise<string> | null = null;
-
-  async function orgVon(schluessel: string): Promise<string> {
-    const antwort = await fetch(new URL("/v1/models?limit=1", basis), {
-      headers: { "x-api-key": schluessel, "anthropic-version": "2026-10-21" },
-    });
-    await antwort.body?.cancel();
-    if (!antwort.ok) return "";
-    return antwort.headers.get("anthropic-organization-id") ?? "";
-  }
+  let erlaubt: Promise<Set<string>> | null = null;
+  const erlaubteSumme = () => {
+    erlaubt ??= (async () => {
+      const summen = new Set((env.erlaubteHashes ?? []).map((h) => h.trim().toLowerCase()).filter((h) => PRUEFSUMME.test(h)));
+      if (env.anthropicKey) summen.add(await hash(env.anthropicKey));
+      return summen;
+    })();
+    return erlaubt;
+  };
 
   function cors(req: Request): Record<string, string> {
     const herkunft = req.headers.get("origin") ?? "";
@@ -50,7 +51,7 @@ export function erstelleHandler(env: Umgebung) {
       "Access-Control-Allow-Origin": env.erlaubteUrspruenge.includes(herkunft)
         ? herkunft
         : env.erlaubteUrspruenge[0] ?? "",
-      "Access-Control-Allow-Headers": "content-type, x-anthropic-key",
+      "Access-Control-Allow-Headers": "content-type, x-schluessel-hash",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin",
@@ -64,10 +65,10 @@ export function erstelleHandler(env: Umgebung) {
 
     if (req.method === "OPTIONS") return antwort(204);
     if (req.method !== "POST") return antwort(405, "Nur POST.");
-    if (!env.anthropicKey || !env.secretKey) return antwort(503, "Nicht eingerichtet.");
+    if (!env.secretKey) return antwort(503, "Nicht eingerichtet.");
 
-    const schluessel = req.headers.get("x-anthropic-key") ?? "";
-    if (!/^sk-ant-[\w-]{10,300}$/.test(schluessel)) return antwort(401, "Schlüssel fehlt.");
+    const summe = (req.headers.get("x-schluessel-hash") ?? "").trim().toLowerCase();
+    if (!PRUEFSUMME.test(summe)) return antwort(401, "Prüfsumme fehlt.");
 
     let eingabe: { app?: unknown; modell?: unknown; usd?: unknown };
     try {
@@ -81,19 +82,9 @@ export function erstelleHandler(env: Umgebung) {
     if (!/^[a-z0-9-]{1,30}$/.test(app) || app === "fragmal") return antwort(400, "App?");
     if (!modell || !(usd > 0 && usd <= 50)) return antwort(400, "Betrag?");
 
-    const h = await hash(schluessel);
-    if (!geprueft.has(h)) {
-      eigeneOrg ??= orgVon(env.anthropicKey).then((o) => {
-        if (!o) eigeneOrg = null;
-        return o;
-      });
-      const [eigen, fremd] = await Promise.all([eigeneOrg, orgVon(schluessel)]);
-      if (!fremd) return antwort(401, "Schlüssel abgelehnt.");
-      if (!eigen || eigen !== fremd) {
-        console.warn(`Meldung von ${app}: andere Organisation`);
-        return antwort(403, "Andere Organisation.");
-      }
-      geprueft.add(h);
+    if (!(await erlaubteSumme()).has(summe)) {
+      console.warn(`Meldung von ${app}: Schlüssel nicht erlaubt`);
+      return antwort(403, "Schlüssel nicht erlaubt.");
     }
 
     const eintrag = await fetch(`${env.supabaseUrl}/rest/v1/fragmal_kosten`, {

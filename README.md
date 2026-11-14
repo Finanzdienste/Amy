@@ -60,6 +60,7 @@ Unter *Edge Functions → Secrets*:
 |---|---|
 | `ANTHROPIC_API_KEY` | der Schlüssel aus Schritt 1 |
 | `ERLAUBTE_NUTZER` | die *User UID* der beiden Konten aus Schritt 2, durch Komma getrennt |
+| `ERLAUBTE_SCHLUESSEL` | nur für `api-kosten`, wenn nötig: die Prüfsummen weiterer Anthropic-Schlüssel, die Kosten melden dürfen (etwa der von Boxenstopp, wenn er ein anderer ist als `ANTHROPIC_API_KEY`), durch Komma getrennt – Boxenstopp zeigt seine unter Einstellungen → KI-Schlüssel |
 
 Nur wer in `ERLAUBTE_NUTZER` steht, bekommt Antworten. Eine gültige Anmeldung
 allein reicht nicht, denn im selben Supabase-Projekt könnten auch andere
@@ -130,10 +131,13 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   (Tabelle `fragmal_kosten`: Zeit, Nutzer-ID, Modell, Betrag, kein Inhalt;
   gesperrt für alle außer der Funktion), und zählt das seit Beginn des
   Abrechnungsmonats zusammen, über alle Geräte. Boxenstopp meldet seine
-  Kosten über die Funktion `api-kosten` in dieselbe Tabelle (`app`); wer
-  melden darf, prüft die Funktion bei Anthropic: Der mitgeschickte Schlüssel
-  muss zur selben Organisation gehören wie ihr eigener. Gespeichert wird der
-  Schlüssel nicht. Andere Apps zählen nicht mit; Anthropics Kostenbericht
+  Kosten über die Funktion `api-kosten` in dieselbe Tabelle (`app`). Den
+  Schlüssel bekommt die Funktion dabei nicht: Die App schickt nur seine
+  Prüfsumme (SHA-256) im Kopf `x-schluessel-hash`, und melden darf, wessen
+  Prüfsumme zum eigenen Schlüssel der Funktion passt oder in
+  `ERLAUBTE_SCHLUESSEL` steht. Den Kopf mit dem Schlüssel selbst
+  (`x-anthropic-key`, so meldeten ältere Fassungen) lässt die Funktion nicht
+  mehr zu – der Browser schickt ihn dann gar nicht erst. Andere Apps zählen nicht mit; Anthropics Kostenbericht
   (Admin-API) gibt es für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
   und `ABRECHNUNG_TAG` (Tag, an dem das Guthaben neu beginnt, Vorgabe 1).
 - **Neuigkeiten.** Nach einer Neuerung zeigt die App einmal je Konto und Gerät
@@ -202,7 +206,8 @@ echt, mit Deno, wie bei Supabase.
 echten Konfiguration).
 
 **Funktion neu veröffentlichen:** mit der Supabase CLI
-`supabase functions deploy amy-chat --no-verify-jwt`. Die Funktion prüft die
+`supabase functions deploy amy-chat --no-verify-jwt` (und genauso
+`supabase functions deploy api-kosten --no-verify-jwt`). Die Funktion prüft die
 Anmeldung selbst, deshalb ist die Prüfung durch die Plattform aus
 (siehe `supabase/config.toml`).
 
