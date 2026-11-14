@@ -60,7 +60,7 @@ Unter *Edge Functions → Secrets*:
 |---|---|
 | `ANTHROPIC_API_KEY` | der Schlüssel aus Schritt 1 |
 | `ERLAUBTE_NUTZER` | die *User UID* der beiden Konten aus Schritt 2, durch Komma getrennt |
-| `ERLAUBTE_SCHLUESSEL` | nur für `api-kosten`, wenn nötig: die Prüfsummen weiterer Anthropic-Schlüssel, die Kosten melden dürfen (etwa der von Boxenstopp, wenn er ein anderer ist als `ANTHROPIC_API_KEY`), durch Komma getrennt – Boxenstopp zeigt seine unter Einstellungen → KI-Schlüssel |
+| `ERLAUBTE_SCHLUESSEL` | nur für `api-kosten` und `produkt-bild`, wenn nötig: die Prüfsummen weiterer Anthropic-Schlüssel, die Kosten melden und Bilder holen dürfen (etwa der von Boxenstopp, wenn er ein anderer ist als `ANTHROPIC_API_KEY`), durch Komma getrennt – Boxenstopp zeigt seine unter Einstellungen → KI-Schlüssel |
 
 Nur wer in `ERLAUBTE_NUTZER` steht, bekommt Antworten. Eine gültige Anmeldung
 allein reicht nicht, denn im selben Supabase-Projekt könnten auch andere
@@ -140,6 +140,19 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   mehr zu – der Browser schickt ihn dann gar nicht erst. Andere Apps zählen nicht mit; Anthropics Kostenbericht
   (Admin-API) gibt es für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
   und `ABRECHNUNG_TAG` (Tag, an dem das Guthaben neu beginnt, Vorgabe 1).
+- **Bilder für Boxenstopp** (Funktion `produkt-bild`, hat mit „Frag mal“
+  nichts zu tun, nutzt nur dasselbe Projekt): Findet Claude in Boxenstopp zu
+  einem Strichcode eine Shopseite, holt die Funktion deren Hauptbild – wie
+  eine Linkvorschau im Messenger (`og:image`, `twitter:image`, das Bild im
+  Produkt-JSON-LD, `link rel="image_src"`). Fragen darf, wer die Prüfsumme
+  eines erlaubten Schlüssels schickt (wie bei `api-kosten`). Nur https,
+  keine IP-Adressen und nichts Internes (auch nicht über Weiterleitungen
+  oder einen Namen, der auf eine private Adresse zeigt), höchstens drei
+  Weiterleitungen, die Seite bis 1,5 MB, das Bild bis 8 MB und nur als
+  JPEG, PNG, WebP, GIF oder AVIF. Sie nennt sich ehrlich
+  (`Boxenstopp-Linkvorschau`), versucht es nach einer Abweisung nicht
+  anders, liest bei Rossmann nichts und speichert nichts; ins Protokoll
+  kommt bei Fehlern nur die Website und der Status.
 - **Neuigkeiten.** Nach einer Neuerung zeigt die App einmal je Konto und Gerät
   ein kleines Fenster (`NEUIGKEIT` in `js/app.js`); wer gerade die Einführung
   gesehen hat, bekommt es nicht.
@@ -197,6 +210,9 @@ echt, mit Deno, wie bei Supabase.
 
 - `tests/einheit.test.mjs`: Markdown (auch dass HTML in Antworten nichts
   ausführen kann), der Antwortstrom, die Kostenrechnung
+- `tests/produkt-bild.test.mjs`: die Bilder für Boxenstopp gegen ein
+  nachgebautes Internet – wer fragen darf, og:image, JSON-LD, Weiterleitung,
+  was abgewiesen wird (http, IP-Adressen, Internes, Rossmann, zu groß)
 - `tests/funktion.test.mjs`: die Funktion allein – wer fragen darf, was an
   die API geht, Fehler, Abbruch
 - `tests/app.test.mjs`: die ganze App im Browser, vom Anmelden bis zum
@@ -207,7 +223,8 @@ echten Konfiguration).
 
 **Funktion neu veröffentlichen:** mit der Supabase CLI
 `supabase functions deploy amy-chat --no-verify-jwt` (und genauso
-`supabase functions deploy api-kosten --no-verify-jwt`). Die Funktion prüft die
+`supabase functions deploy api-kosten --no-verify-jwt` und
+`supabase functions deploy produkt-bild --no-verify-jwt`). Die Funktion prüft die
 Anmeldung selbst, deshalb ist die Prüfung durch die Plattform aus
 (siehe `supabase/config.toml`).
 
