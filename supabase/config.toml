@@ -12,3 +12,8 @@ verify_jwt = false
 # mit der Prüfsumme ihres Anthropic-Schlüssels aus (siehe handler.ts).
 [functions.api-kosten]
 verify_jwt = false
+
+# produkt-bild: Linkvorschau für Boxenstopp – ohne Anmeldung, mit der
+# Prüfsumme des Anthropic-Schlüssels wie api-kosten (siehe handler.ts).
+[functions.produkt-bild]
+verify_jwt = false

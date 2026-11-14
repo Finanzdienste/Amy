@@ -4,6 +4,9 @@
  *   /auth/v1/...    Supabase Auth (anmelden, erneuern, abmelden, wer bin ich)
  *   /v1/messages    die Anthropic-API, antwortet mit einem gestreamten Text
  *                   samt Denkschritt, wie die echte API
+ *   /netz/<website>/<pfad>  „das Internet“ für produkt-bild: was in netz
+ *                   unter "<website>/<pfad>" steht ({ status, kopf, koerper }),
+ *                   sonst 404; jeder Abruf steht in netzAbrufe
  *
  * Jede Anfrage an /v1/messages wird mitgeschrieben, damit die Tests prüfen
  * können, was die Funktion wirklich verschickt hat. Es fließt kein Geld.
@@ -77,6 +80,8 @@ export async function starteAttrappe() {
   const anfragen = [];
   const kosten = [];
   const modellAbfragen = [];
+  const netz = new Map();
+  const netzAbrufe = [];
   let zaehler = 0;
 
   const server = http.createServer(async (req, res) => {
@@ -96,6 +101,16 @@ export async function starteAttrappe() {
       res.end(JSON.stringify(daten));
     };
     const roh = await lesen(req);
+
+    if (url.pathname.startsWith('/netz/')) {
+      const [, , website, ...rest] = url.pathname.split('/');
+      const wo = `${website}/${rest.join('/')}${url.search}`;
+      netzAbrufe.push({ wo, kopf: req.headers });
+      const a = netz.get(wo);
+      res.writeHead(a ? a.status ?? 200 : 404, a ? a.kopf ?? {} : { 'Content-Type': 'text/plain' });
+      res.end(a ? a.koerper ?? '' : 'fehlt');
+      return;
+    }
 
     if (url.pathname === '/auth/v1/token') {
       const daten = JSON.parse(roh || '{}');
@@ -287,6 +302,8 @@ export async function starteAttrappe() {
     anfragen,
     kosten,
     modellAbfragen,
+    netz,
+    netzAbrufe,
     schliessen: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
   };
 }
