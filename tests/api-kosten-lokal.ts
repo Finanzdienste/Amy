@@ -10,7 +10,7 @@ Deno.serve(
   },
   erstelleHandler({
     anthropicKey: Deno.env.get("ANTHROPIC_API_KEY") || undefined,
-    anthropicBaseUrl: Deno.env.get("ANTHROPIC_BASE_URL"),
+    erlaubteHashes: (Deno.env.get("ERLAUBTE_SCHLUESSEL") ?? "").split(",").filter(Boolean),
     supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
     secretKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || undefined,
     erlaubteUrspruenge: (Deno.env.get("ERLAUBTE_URSPRUENGE") ?? "").split(",").filter(Boolean),

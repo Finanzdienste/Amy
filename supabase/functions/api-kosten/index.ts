@@ -1,8 +1,11 @@
 /*
- * Einstieg der Supabase-Funktion „api-kosten“ (siehe handler.ts). Braucht
- * dasselbe Secret ANTHROPIC_API_KEY wie amy-chat; SUPABASE_URL und den
- * geheimen Schlüssel setzt Supabase selbst. Optional ERLAUBTE_URSPRUENGE wie
- * bei amy-chat.
+ * Einstieg der Supabase-Funktion „api-kosten“ (siehe handler.ts). Nimmt
+ * dasselbe Secret ANTHROPIC_API_KEY wie amy-chat (seine Prüfsumme darf
+ * melden); SUPABASE_URL und den geheimen Schlüssel setzt Supabase selbst.
+ * Optional ERLAUBTE_SCHLUESSEL: weitere Schlüssel als Prüfsumme (SHA-256,
+ * hex), durch Komma getrennt – etwa der von Boxenstopp, wenn er ein anderer
+ * ist (Boxenstopp zeigt sie unter Einstellungen → KI-Schlüssel). Und
+ * ERLAUBTE_URSPRUENGE wie bei amy-chat.
  */
 
 import { erstelleHandler } from "./handler.ts";
@@ -22,6 +25,7 @@ function secretKey(): string {
 
 Deno.serve(erstelleHandler({
   anthropicKey: Deno.env.get("ANTHROPIC_API_KEY") || undefined,
+  erlaubteHashes: (Deno.env.get("ERLAUBTE_SCHLUESSEL") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
   secretKey: secretKey() || undefined,
   erlaubteUrspruenge: (Deno.env.get("ERLAUBTE_URSPRUENGE") ?? "https://finanzdienste.github.io")
