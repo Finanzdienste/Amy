@@ -105,7 +105,7 @@ export async function starteAttrappe() {
     if (url.pathname.startsWith('/netz/')) {
       const [, , website, ...rest] = url.pathname.split('/');
       const wo = `${website}/${rest.join('/')}${url.search}`;
-      netzAbrufe.push({ wo, kopf: req.headers });
+      netzAbrufe.push({ wo, kopf: req.headers, koerper: roh });
       const a = netz.get(wo);
       res.writeHead(a ? a.status ?? 200 : 404, a ? a.kopf ?? {} : { 'Content-Type': 'text/plain' });
       res.end(a ? a.koerper ?? '' : 'fehlt');

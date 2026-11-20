@@ -17,3 +17,8 @@ verify_jwt = false
 # Prüfsumme des Anthropic-Schlüssels wie api-kosten (siehe handler.ts).
 [functions.produkt-bild]
 verify_jwt = false
+
+# rezept-web: Rezeptseiten lesen und mit Tavily suchen, für Boxenstopp – ohne
+# Anmeldung, mit der Prüfsumme eines erlaubten Schlüssels (siehe handler.ts).
+[functions.rezept-web]
+verify_jwt = false
