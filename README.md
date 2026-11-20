@@ -60,7 +60,8 @@ Unter *Edge Functions → Secrets*:
 |---|---|
 | `ANTHROPIC_API_KEY` | der Schlüssel aus Schritt 1 |
 | `ERLAUBTE_NUTZER` | die *User UID* der beiden Konten aus Schritt 2, durch Komma getrennt |
-| `ERLAUBTE_SCHLUESSEL` | nur für `api-kosten` und `produkt-bild`, wenn nötig: die Prüfsummen weiterer Anthropic-Schlüssel, die Kosten melden und Bilder holen dürfen (etwa der von Boxenstopp, wenn er ein anderer ist als `ANTHROPIC_API_KEY`), durch Komma getrennt – Boxenstopp zeigt seine unter Einstellungen → KI-Schlüssel |
+| `ERLAUBTE_SCHLUESSEL` | nur für `api-kosten`, `produkt-bild` und `rezept-web`, wenn nötig: die Prüfsummen weiterer Anthropic-Schlüssel, die Kosten melden und Bilder holen dürfen (etwa der von Boxenstopp, wenn er ein anderer ist als `ANTHROPIC_API_KEY`), durch Komma getrennt – Boxenstopp zeigt seine unter Einstellungen → KI-Schlüssel (für `rezept-web` geht auch die eines Gemini-Schlüssels) |
+| `TAVILY_API_KEY` | nur für `rezept-web`: der Schlüssel von tavily.com (Gratis-Plan, 1000 Credits im Monat; Tavily hat die private Nutzung erlaubt) – ohne ihn sucht `rezept-web` nicht, liest aber Seiten |
 
 Nur wer in `ERLAUBTE_NUTZER` steht, bekommt Antworten. Eine gültige Anmeldung
 allein reicht nicht, denn im selben Supabase-Projekt könnten auch andere
@@ -140,6 +141,15 @@ Einige Einzelheiten haben Gründe, die man dem Code nicht ansieht:
   mehr zu – der Browser schickt ihn dann gar nicht erst. Andere Apps zählen nicht mit; Anthropics Kostenbericht
   (Admin-API) gibt es für Einzelkonten nicht. Einstellbar über `API_GUTHABEN_USD` (Vorgabe 100)
   und `ABRECHNUNG_TAG` (Tag, an dem das Guthaben neu beginnt, Vorgabe 1).
+- **Rezepte aus dem Netz für Boxenstopp** (Funktion `rezept-web`, ohne
+  Claude): `{ art: "seite", seite }` holt eine Rezeptseite – erst robots.txt
+  (verbietet sie die Seite für „*“ oder eigens für Boxenstopp, wird nichts
+  geholt; geht sie gar nicht, lieber nicht) – und gibt das Rezept aus ihrem
+  JSON-LD („Recipe“: Name, Zutaten, Schritte, Portionen, Minuten, Bild)
+  und den sichtbaren Text zurück. `{ art: "suche", q, max, seiten }` sucht
+  mit Tavily (`TAVILY_API_KEY`) und gibt Titel, Adresse und Text der Treffer
+  zurück; die Suchanfrage kommt nicht ins Protokoll. Dieselben Grenzen und
+  dieselbe Anmeldung wie `produkt-bild`, Kennung „Boxenstopp-Rezeptleser“.
 - **Bilder für Boxenstopp** (Funktion `produkt-bild`, hat mit „Frag mal“
   nichts zu tun, nutzt nur dasselbe Projekt): Findet Claude in Boxenstopp zu
   einem Strichcode eine Shopseite, holt die Funktion deren Hauptbild – wie
@@ -213,6 +223,8 @@ echt, mit Deno, wie bei Supabase.
 - `tests/produkt-bild.test.mjs`: die Bilder für Boxenstopp gegen ein
   nachgebautes Internet – wer fragen darf, og:image, JSON-LD, Weiterleitung,
   was abgewiesen wird (http, IP-Adressen, Internes, Rossmann, zu groß)
+- `tests/rezept-web.test.mjs`: Rezeptseiten (JSON-LD, Text, robots.txt,
+  Grenzen) und die Suche mit Tavily gegen ein nachgebautes Internet
 - `tests/funktion.test.mjs`: die Funktion allein – wer fragen darf, was an
   die API geht, Fehler, Abbruch
 - `tests/app.test.mjs`: die ganze App im Browser, vom Anmelden bis zum
@@ -224,7 +236,8 @@ echten Konfiguration).
 **Funktion neu veröffentlichen:** mit der Supabase CLI
 `supabase functions deploy amy-chat --no-verify-jwt` (und genauso
 `supabase functions deploy api-kosten --no-verify-jwt` und
-`supabase functions deploy produkt-bild --no-verify-jwt`). Die Funktion prüft die
+`supabase functions deploy produkt-bild --no-verify-jwt`,
+`supabase functions deploy rezept-web --no-verify-jwt`). Die Funktion prüft die
 Anmeldung selbst, deshalb ist die Prüfung durch die Plattform aus
 (siehe `supabase/config.toml`).
 
